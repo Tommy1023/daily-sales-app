@@ -166,16 +166,20 @@ function App() {
           })}
         </tbody>
         {/* 底部總計列 */}
-        <tr style={{ backgroundColor: '#222', fontWeight: 'bold' }}>
-          <td colSpan="6" style={{ ...styles.td, textAlign: 'right', color: '#aaa' }}>今日總計：</td>
-          <td style={{ ...styles.td, color: '#ffeb3b' }}>${totals.totalRevenue.toLocaleString()}</td>
-          <td style={{ ...styles.td, color: totals.totalDiff >= 0 ? '#66bb6a' : '#ef5350' }}>
-            ${totals.totalDiff.toLocaleString()}
-          </td>
-          <td style={{ ...styles.td, color: '#29b6f6' }}>
-            ${totals.totalCommission.toFixed(1)}
-          </td>
-        </tr>
+        <tfoot style={{ backgroundColor: '#111', fontWeight: 'bold' }}>
+          <tr>
+            <td colSpan="6" style={{ ...styles.td, textAlign: 'right', borderTop: '2px solid #555' }}>今日總結：</td>
+            <td style={{ ...styles.td, color: '#ffeb3b', borderTop: '2px solid #555' }}>
+              ${totals.totalRevenue.toLocaleString()}
+            </td>
+            <td style={{ ...styles.td, color: totals.totalDiff >= 0 ? '#66bb6a' : '#ef5350', borderTop: '2px solid #555' }}>
+              ${totals.totalDiff.toLocaleString()}
+            </td>
+            <td style={{ ...styles.td, color: '#29b6f6', borderTop: '2px solid #555' }}>
+              ${totals.totalCommission.toFixed(1)}
+            </td>
+          </tr>
+        </tfoot>
       </table>
 
       <div style={{ marginTop: '20px' }}>
