@@ -84,7 +84,7 @@ app.post('/api/sales', async (req, res) => {
 // 取得所有商品資訊 (供下拉選單使用)
 app.get('/api/products', async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT * FROM products');
+    const [rows] = await db.query('SELECT * FROM products WHERE is_active = 1');
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -103,32 +103,76 @@ app.get('/api/sales', async (req, res) => {
 
 // 批次儲存銷售紀錄 (處理你表格中多行商品的資料)
 app.post('/api/sales/bulk', async (req, res) => {
+  const { date, location, items } = req.body;
+
   try {
-    const { date, location, items } = req.body;
-
-    // 過濾掉沒填品名的空行
-    const validItems = items.filter(item => item.product_name !== '');
-
-    if (validItems.length === 0) return res.status(400).json({ message: "無有效資料" });
-
-    const values = validItems.map(item => [
+    // 1. 整理資料陣列 (必須對齊下方 SQL 的順序)
+    const values = items.map(item => [
       date,
       location,
       item.product_name,
-      item.unit_price,
-      (Number(item.p_jin) * 16) + Number(item.p_tael), // 轉成總兩數
-      (Number(item.s_jin) * 16) + Number(item.s_tael)  // 轉成總兩數
+      Number(item.unit_price || 0),   // 對應 snapshot_retail_price
+      Number(item.cost_price || 0),   // 對應 snapshot_cost_price
+      // 根據單位計算總量
+      item.unit_type === 'weight'
+        ? (Number(item.p_jin || 0) * 16 + Number(item.p_tael || 0))
+        : Number(item.p_jin || 0),
+      item.unit_type === 'weight'
+        ? (Number(item.s_jin || 0) * 16 + Number(item.s_tael || 0))
+        : Number(item.s_jin || 0)
     ]);
 
+    // 2. 撰寫 SQL (欄位順序要跟上面 values 裡的一模一樣)
     const sql = `INSERT INTO sales_records 
-      (record_date, location, product_name, unit_price, purchase_total_tael, sale_quantity) 
+      (record_date, location, product_name, snapshot_retail_price, snapshot_cost_price, purchase_total_units, sale_total_units) 
       VALUES ?`;
 
     await db.query(sql, [values]);
     res.json({ message: "儲存成功" });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "儲存失敗" });
+    console.error("❌ MySQL 報錯了：", error.sqlMessage); // 這裡會印出具體原因
+    res.status(500).json({ error: error.sqlMessage });
+  }
+});
+// 更新商品資訊 (單價、單位)
+app.put('/api/products/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, cost_price_tael, retail_price_tael, unit_type } = req.body;
+  try {
+    await db.query(
+      'UPDATE products SET name=?, cost_price_tael=?, retail_price_tael=?, unit_type=? WHERE id=?',
+      [name, cost_price_tael, retail_price_tael, unit_type, id]
+    );
+    res.json({ message: "更新成功" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 1. 新增商品
+app.post('/api/products', async (req, res) => {
+  const { name, cost_price_tael, retail_price_tael, unit_type } = req.body;
+  try {
+    await db.query(
+      'INSERT INTO products (name, cost_price_tael, retail_price_tael, unit_type) VALUES (?, ?, ?, ?)',
+      [name, cost_price_tael, retail_price_tael, unit_type]
+    );
+    res.json({ message: "商品新增成功" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 2. 刪除商品
+app.delete('/api/products/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    // 改為將狀態設為 0 (停用)
+    await db.query('UPDATE products SET is_active = 0 WHERE id = ?', [id]);
+    res.json({ message: "商品已下架（不影響歷史資料）" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
