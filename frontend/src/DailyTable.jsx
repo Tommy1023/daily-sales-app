@@ -11,39 +11,116 @@ const styles = {
   cancelBtn: { backgroundColor: '#c62828', color: 'white', padding: '10px 20px', border: 'none', cursor: 'pointer' },
 };
 
-function App() {
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+function DailyTable({editData, onClearEdit}) {
+  const [date, setDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [location, setLocation] = useState('台北市場');
   const [items, setItems] = useState([]);
-  const locations = ['台北市場', '板橋市場', '新莊市場'];
+  const locations = ['台北市場', '板橋市場', '新莊市場']
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const res = await axios.get('http://localhost:3001/api/products');
-        const initialRows = res.data.map(p => ({
-          product_id: p.id,
-          product_name: p.name,
-          unit_type: p.unit_type || 'weight',
-          unit_price: p.retail_price_tael, // 零售價
-          cost_price: p.cost_price_tael,   // 進貨價
-          p_jin: '', p_tael: '', 
-          s_jin: '', s_tael: ''
-        }));
-        setItems(initialRows);
-      } catch (err) {
-        console.error("載入失敗", err);
-      }
-    };
-    fetchProducts();
-  }, []);
+    if (editData && editData.items) {
+      // 1. 先處理日期與地點
+      if (editData.date) setDate(editData.date);
+      if (editData.location) setLocation(editData.location);
+      if (editData.date) {
+      // 確保只取 YYYY-MM-DD 這部分
+      const formattedDate = new Date(editData.date).toISOString().split('T')[0];
+      setDate(formattedDate);
+    }
+      // 2. 處理表格內容
+      const formattedItems = (editData.items || []).map(r => {
+        const isWeight = r.unit_type === 'weight';
+        const pTotal = Number(r.purchase_total_units || 0);
+        const sTotal = Number(r.sale_total_units || 0);
+      
+        return {
+          product_name: r.product_name,
+          unit_type: r.unit_type,
+          // 修正：編輯模式下，優先使用歷史快照價格
+          unit_price: r.snapshot_retail_price || r.unit_price || 0,
+          cost_price: r.snapshot_cost_price || r.cost_price || 0,
+          p_jin: isWeight ? Math.floor(pTotal / 16) : pTotal,
+          p_tael: isWeight ? (pTotal % 16) : 0,
+          s_jin: isWeight ? Math.floor(sTotal / 16) : sTotal,
+          s_tael: isWeight ? (sTotal % 16) : 0
+        };
+      });
+      setItems(formattedItems);
+    } else {
+      // --- 模式 B：正常新增模式 ---
+      const fetchProducts = async () => {
+        try {
+          const res = await axios.get('http://localhost:3001/api/products');
+          const initialRows = res.data.map(p => ({
+            product_id: p.id,
+            product_name: p.name,
+            unit_type: p.unit_type || 'weight',
+            unit_price: p.retail_price_tael,
+            cost_price: p.cost_price_tael,
+            p_jin: '', p_tael: '', 
+            s_jin: '', s_tael: ''
+          }));
+          setItems(initialRows);
+        } catch (err) {
+          console.error("載入失敗", err);
+        }
+      };
+      fetchProducts();
+    }
+  }, [editData]);
 
   const handleUpdate = (index, field, value) => {
     const newItems = [...items];
     newItems[index][field] = value;
     setItems(newItems);
   };
+    const handleSave = async () => {
+      if (items.length === 0) return alert("沒有資料可以儲存");
+      if (!date || !location) {
+        console.error("目前的 State 內容:", { date, location });
+        alert("錯誤：日期或地點丟失，請重新選擇。");
+        return;
+      }
+    try {
+      // --- 1. 如果是編輯模式，先刪除舊資料 ---
+      if (editData && editData.post_time) {
+        console.log("正在替換舊紀錄...", editData.post_time);
+        await axios.delete('http://localhost:3001/api/sales/batch', {
+          params: { 
+            date: editData.date, 
+            location: editData.location, 
+            post_time: editData.post_time 
+          }
+        });
+      }
 
+    // --- 2. 準備新的 Payload ---
+    const payload = {
+      date: date,
+      location: location,
+      items: items.map(item => ({
+        product_name: item.product_name,
+        unit_price: Number(item.unit_price || 0),
+        cost_price: Number(item.cost_price || 0),
+        p_jin: Number(item.p_jin || 0),
+        p_tael: Number(item.p_tael || 0),
+        s_jin: Number(item.s_jin || 0),
+        s_tael: Number(item.s_tael || 0),
+        unit_type: item.unit_type
+      }))
+    };
+
+    // --- 3. 儲存新資料 ---
+    const res = await axios.post('http://localhost:3001/api/sales/bulk', payload);
+    alert("✅ 紀錄已更新！");
+
+    if (onClearEdit) onClearEdit(); // 清除編輯狀態，跳回正常模式
+  } catch (err) {
+    console.error("儲存失敗:", err);
+    alert("❌ 更新失敗，請檢查網路或後端");
+  }
+    };
+  
   const getCalc = (item) => {
     let p_total_units = 0;
     let s_total_units = 0;
@@ -69,38 +146,6 @@ function App() {
     return { rev: Math.round(revenue), dif: Math.round(diff), com: comm.toFixed(1) };
   };
 
- const handleSave = async () => {
-  // 1. 先檢查是否有空品名（防呆）
-  if (items.length === 0) return alert("沒有資料可以儲存");
-
-  try {
-    // 2. 整理要送出的資料 (Payload)
-    const payload = {
-      date: date,
-      location: location,
-      // 確保這裡的每一個 Key 都要在後端對應到
-      items: items.map(item => ({
-        product_name: item.product_name,
-        // 💡 這裡最容易出錯：請確認名稱是否與 useEffect 載入時一致
-        unit_price: Number(item.unit_price || 0), 
-        cost_price: Number(item.cost_price || 0), 
-        p_jin: Number(item.p_jin || 0),
-        p_tael: Number(item.p_tael || 0),
-        s_jin: Number(item.s_jin || 0),
-        s_tael: Number(item.s_tael || 0),
-        unit_type: item.unit_type
-      }))
-    };
-
-    console.log("準備送出的資料：", payload); // 👈 儲存前先看一眼
-
-    const res = await axios.post('http://localhost:3001/api/sales/bulk', payload);
-    alert("✅ " + res.data.message);
-  } catch (err) {
-    console.error("儲存出錯內容：", err.response?.data || err.message);
-    alert("❌ 儲存失敗，請檢查控制台錯誤訊息");
-  }
-};
   const totals = items.reduce((acc, item) => {
     const { rev, dif, com } = getCalc(item);
     acc.totalRevenue += rev;
@@ -112,7 +157,6 @@ function App() {
   return (
     <div style={styles.container}>
       <h2>📅 每日營業紀錄編輯 (全商品列表)</h2>
-      
       <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
         <input type="date" style={styles.input} value={date} onChange={e => setDate(e.target.value)} />
         <select style={styles.input} value={location} onChange={e => setLocation(e.target.value)}>
@@ -203,7 +247,10 @@ function App() {
           </tr>
         </tfoot>
       </table>
-
+      <div style={{padding: '20px'}}>
+      {editData && <div style={{color: '#ff9800', marginBottom: '10px'}}>⚠️ 正在重新編輯歷史紀錄</div>}
+      {/* Date, Location, Table... */}
+    </div>    
       <div style={{ marginTop: '20px' }}>
         <button onClick={handleSave} style={styles.saveBtn}>儲存今日所有紀錄</button>
         <button onClick={() => window.location.reload()} style={styles.cancelBtn}>重置表格</button>
@@ -212,4 +259,4 @@ function App() {
   );
 }
 
-export default App;
+export default DailyTable;

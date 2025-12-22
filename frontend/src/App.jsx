@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import DailyTable from './DailyTable';
 import ProductAdmin from './ProductAdmin';
+import HistoryReport from '../HistoryReport';
 
 function App() {
-  const [view, setView] = useState('daily'); // 'daily' 或 'admin'
+  const [view, setView] = useState('daily'); // 'daily', 'admin', 'history'
+  const [editData, setEditData] = useState(null);
 
   const navStyle = {
     display: 'flex',
@@ -23,16 +25,42 @@ function App() {
     fontWeight: 'bold'
   });
 
+  // 提供給 HistoryReport 呼叫的函式
+  const handleEditRequest = (records, date, location, time) => {
+    // records 是該時段的所有商品紀錄
+    setEditData({
+      date: date,
+      location: location,
+      items: records,
+      post_time: time
+    });
+    setView('daily'); // 自動跳轉回填寫頁面
+  };
+
   return (
     <div style={{ backgroundColor: '#1a1a1a', minHeight: '100vh' }}>
-      {/* 導覽列 */}
+      {/* // 導覽列增加按鈕 */}
       <nav style={navStyle}>
         <button style={btnStyle(view === 'daily')} onClick={() => setView('daily')}>📝 填寫日報</button>
+        <button style={btnStyle(view === 'history')} onClick={() => setView('history')}>📜 歷史查詢</button>
         <button style={btnStyle(view === 'admin')} onClick={() => setView('admin')}>⚙️ 商品維護</button>
       </nav>
 
-      {/* 內容區域 */}
-      {view === 'daily' ? <DailyTable /> : <ProductAdmin />}
+      {/* // 內容區域切換 */}
+    <main>
+        {view === 'daily' && (
+          <DailyTable 
+            editData={editData} 
+            onClearEdit={() => setEditData(null)} 
+          />
+        )}
+        
+        {view === 'history' && (
+          <HistoryReport onEditRequest={handleEditRequest} />
+        )}
+
+        {view === 'admin' && <ProductAdmin />}
+      </main>
     </div>
   );
 }

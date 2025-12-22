@@ -54,11 +54,12 @@ app.post('/api/sales', async (req, res) => {
     const total_tael = (Number(jin) * 16) + Number(tael);
 
     // 3. 準備 SQL 語法
+    // index.js 建議修正如下
     const sql = `
-      INSERT INTO sales_records 
-      (record_date, location, product_name, unit_price, purchase_total_tael, sale_quantity) 
-      VALUES (?, ?, ?, ?, ?, ?)
-    `;
+  INSERT INTO sales_records 
+  (record_date, location, product_name, snapshot_retail_price, snapshot_cost_price, purchase_total_units, sale_total_units) 
+  VALUES ?`;
+    // 注意：批次寫入用 VALUES ? (不帶括號)，單筆才用 VALUES (?,?,...)
 
     // 4. 執行查詢
     const [result] = await db.execute(sql, [
@@ -101,38 +102,52 @@ app.get('/api/sales', async (req, res) => {
   }
 });
 
+app.get('/api/sales/history', async (req, res) => {
+  const { date, location } = req.query;
+  try {
+    // 依據建立時間排序，這樣同一天的紀錄會按順序排好
+    const [rows] = await db.query(
+      'SELECT *, DATE_FORMAT(created_at, "%H:%i") as post_time FROM sales_records WHERE record_date = ? AND location = ? ORDER BY created_at DESC',
+      [date, location]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("查詢歷史出錯:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 批次儲存銷售紀錄 (處理你表格中多行商品的資料)
 app.post('/api/sales/bulk', async (req, res) => {
   const { date, location, items } = req.body;
 
   try {
-    // 1. 整理資料陣列 (必須對齊下方 SQL 的順序)
     const values = items.map(item => [
-      date,
-      location,
-      item.product_name,
-      Number(item.unit_price || 0),   // 對應 snapshot_retail_price
-      Number(item.cost_price || 0),   // 對應 snapshot_cost_price
-      // 根據單位計算總量
+      date,                         // 1. record_date
+      location,                     // 2. location
+      item.product_name,            // 3. product_name
+      item.unit_price,              // 4. snapshot_retail_price
+      item.cost_price,              // 5. snapshot_cost_price
+      // 判斷單位並存入總單位數
       item.unit_type === 'weight'
-        ? (Number(item.p_jin || 0) * 16 + Number(item.p_tael || 0))
-        : Number(item.p_jin || 0),
+        ? (Number(item.p_jin) * 16 + Number(item.p_tael))
+        : Number(item.p_jin),       // 6. purchase_total_units
       item.unit_type === 'weight'
-        ? (Number(item.s_jin || 0) * 16 + Number(item.s_tael || 0))
-        : Number(item.s_jin || 0)
+        ? (Number(item.s_jin) * 16 + Number(item.s_tael))
+        : Number(item.s_jin),       // 7. sale_total_units
+      item.unit_type                // 8. unit_type (建議加上，歷史報表才好判斷)
     ]);
 
-    // 2. 撰寫 SQL (欄位順序要跟上面 values 裡的一模一樣)
+    // 更新後的 SQL (共 8 個欄位)
     const sql = `INSERT INTO sales_records 
-      (record_date, location, product_name, snapshot_retail_price, snapshot_cost_price, purchase_total_units, sale_total_units) 
+      (record_date, location, product_name, snapshot_retail_price, snapshot_cost_price, purchase_total_units, sale_total_units, unit_type) 
       VALUES ?`;
 
     await db.query(sql, [values]);
-    res.json({ message: "儲存成功" });
-
-  } catch (error) {
-    console.error("❌ MySQL 報錯了：", error.sqlMessage); // 這裡會印出具體原因
-    res.status(500).json({ error: error.sqlMessage });
+    res.json({ message: "儲存成功！已記錄價格快照與單位類型。" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.sqlMessage });
   }
 });
 // 更新商品資訊 (單價、單位)
@@ -171,6 +186,22 @@ app.delete('/api/products/:id', async (req, res) => {
     // 改為將狀態設為 0 (停用)
     await db.query('UPDATE products SET is_active = 0 WHERE id = ?', [id]);
     res.json({ message: "商品已下架（不影響歷史資料）" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 刪除特定時段的整批紀錄
+app.delete('/api/sales/batch', async (req, res) => {
+  const { date, location, post_time } = req.query;
+  try {
+    // 使用 DATE_FORMAT 匹配我們在前端看到的 post_time
+    await db.query(
+      `DELETE FROM sales_records 
+       WHERE record_date = ? AND location = ? AND DATE_FORMAT(created_at, "%H:%i") = ?`,
+      [date, location, post_time]
+    );
+    res.json({ message: "該時段紀錄已刪除" });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
