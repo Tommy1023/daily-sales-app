@@ -5,51 +5,50 @@ import HistoryReport from '../HistoryReport';
 import LocationAdmin from './LocationAdmin';
 
 function App() {
-  const [view, setView] = useState('daily'); // 'daily', 'admin', 'history'
+  const [view, setView] = useState('daily');
   const [editData, setEditData] = useState(null);
 
-  const navStyle = {
-    display: 'flex',
-    gap: '10px',
-    padding: '20px',
-    backgroundColor: '#333',
-    borderBottom: '1px solid #444'
-  };
-
-  const btnStyle = (active) => ({
-    padding: '10px 20px',
-    backgroundColor: active ? '#4fc3f7' : '#555',
-    color: active ? '#000' : '#fff',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontWeight: 'bold'
-  });
-
-  // 提供給 HistoryReport 呼叫的函式
   const handleEditRequest = (records, date, location, time) => {
-    // records 是該時段的所有商品紀錄
     setEditData({
       date: date,
       location: location,
       items: records,
       post_time: time
     });
-    setView('daily'); // 自動跳轉回填寫頁面
+    setView('daily');
   };
 
   return (
-    <div style={{ backgroundColor: '#1a1a1a', minHeight: '100vh' }}>
-      {/* // 導覽列增加按鈕 */}
-      <nav style={navStyle}>
-        <button style={btnStyle(view === 'daily')} onClick={() => setView('daily')}>📝 填寫日報</button>
-        <button style={btnStyle(view === 'history')} onClick={() => setView('history')}>📜 歷史查詢</button>
-        <button style={btnStyle(view === 'admin')} onClick={() => setView('admin')}>⚙️ 商品維護</button>
-        <button style={btnStyle(view === 'loc_admin')} onClick={() => setView('loc_admin')}>📍 地點維護</button>
+    <div className="min-h-screen bg-neutral-900 text-neutral-100 font-sans">
+      {/* 導覽列 */}
+      <nav className="bg-neutral-800 border-b border-neutral-700 p-4 sticky top-0 z-50 shadow-md">
+        <div className="max-w-7xl mx-auto flex flex-wrap gap-3">
+          {[
+            { id: 'daily', label: '📝 填寫日報' },
+            { id: 'history', label: '📜 歷史查詢' },
+            { id: 'admin', label: '⚙️ 商品維護' },
+            { id: 'loc_admin', label: '📍 地點維護' }
+          ].map((item) => (
+            <button
+              key={item.id}
+              onClick={() => {
+                setView(item.id);
+                if (item.id !== 'daily') setEditData(null);
+              }}
+              className={`px-6 py-2.5 rounded-xl font-bold transition-all transform active:scale-95 ${
+                view === item.id 
+                ? 'bg-sky-500 text-neutral-900 shadow-lg shadow-sky-500/20' 
+                : 'bg-neutral-700 text-neutral-300 hover:bg-neutral-600 hover:text-white'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </nav>
 
-      {/* // 內容區域切換 */}
-    <main>
+      {/* 內容區域 */}
+      <main className="max-w-7xl mx-auto p-4 md:p-8 animate-in fade-in duration-500">
         {view === 'daily' && (
           <DailyTable 
             editData={editData} 

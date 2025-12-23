@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import axios from 'axios';
 
 const styles = {
@@ -12,28 +12,8 @@ const styles = {
   };
 
 function HistoryReport({onEditRequest}) {
-  const [query, setQuery] = useState({
-    date: new Date().toLocaleDateString('en-CA'),
-    location: ''
-  });
+  const [query, setQuery] = useState({ date: new Date().toLocaleDateString('en-CA'), location: '台北市場' });
   const [records, setRecords] = useState([]);
-  const [locationOptions, setLocationOptions] = useState([]);
-
-  useEffect(() => {
-    const fetchLocations = async () => {
-      try {
-        const res = await axios.get('http://localhost:3001/api/locations');
-        setLocationOptions(res.data);
-        // 如果有地點，預設選第一個
-        if (res.data.length > 0) {
-          setQuery(prev => ({ ...prev, location: res.data[0].name }));
-        }
-      } catch (err) {
-        console.error("載入地點失敗", err);
-      }
-    };
-    fetchLocations();
-  }, []);
 
   const handleSearch = async () => {
     try {
@@ -106,11 +86,9 @@ function HistoryReport({onEditRequest}) {
       <div style={styles.searchBar}>
         <input type="date" style={styles.input} value={query.date} onChange={e => setQuery({...query, date: e.target.value})} />
         <select style={styles.input} value={query.location} onChange={e => setQuery({...query, location: e.target.value})}>
-        {locationOptions.map(loc => (
-          <option key={loc.id} value={loc.name}>
-            {loc.name}
-          </option>
-        ))}
+          <option value="台北市場">台北市場</option>
+          <option value="板橋市場">板橋市場</option>
+          <option value="新莊市場">新莊市場</option>
         </select>
         <button style={styles.btnSearch} onClick={handleSearch}>搜尋報表</button>
       </div>
