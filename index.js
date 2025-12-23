@@ -35,7 +35,17 @@ app.get('/api/test-db', async (req, res) => {
 // 3. 啟動伺服器
 const PORT = process.env.PORT || 3001;
 
-// 新增計帳紀錄 API
+
+// 取得所有商品資訊(產生表單用)
+app.get('/api/products', async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT * FROM products WHERE is_active = 1');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+// 新增計帳紀錄
 app.post('/api/sales', async (req, res) => {
   try {
     // 1. 從前端 req.body 取得資料
@@ -49,17 +59,15 @@ app.post('/api/sales', async (req, res) => {
       sale_quantity
     } = req.body;
 
-    // 2. 套用你的公式：換算總兩數
-    // 強制轉成 Number 確保運算正確
+    // 2. 套用你的公式：換算總兩數，強制轉成 Number 確保運算正確
     const total_tael = (Number(jin) * 16) + Number(tael);
 
     // 3. 準備 SQL 語法
-    // index.js 建議修正如下
     const sql = `
-  INSERT INTO sales_records 
-  (record_date, location, product_name, snapshot_retail_price, snapshot_cost_price, purchase_total_units, sale_total_units) 
-  VALUES ?`;
-    // 注意：批次寫入用 VALUES ? (不帶括號)，單筆才用 VALUES (?,?,...)
+      INSERT INTO sales_records 
+      (record_date, location, product_name, snapshot_retail_price, snapshot_cost_price, purchase_total_units, sale_total_units) 
+      VALUES ?`;
+        // 注意：批次寫入用 VALUES ? (不帶括號)，單筆才用 VALUES (?,?,...)
 
     // 4. 執行查詢
     const [result] = await db.execute(sql, [
@@ -82,26 +90,7 @@ app.post('/api/sales', async (req, res) => {
     res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 });
-// 取得所有商品資訊 (供下拉選單使用)
-app.get('/api/products', async (req, res) => {
-  try {
-    const [rows] = await db.query('SELECT * FROM products WHERE is_active = 1');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 取得所有銷售紀錄 (包含計算邏輯)
-app.get('/api/sales', async (req, res) => {
-  try {
-    const [rows] = await db.query('SELECT * FROM sales_records ORDER BY record_date DESC');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
+// 取得歷史記錄
 app.get('/api/sales/history', async (req, res) => {
   const { date, location } = req.query;
   try {
@@ -116,8 +105,7 @@ app.get('/api/sales/history', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-// 批次儲存銷售紀錄 (處理你表格中多行商品的資料)
+// 批次儲存銷售紀錄 (更新歷史紀錄)
 app.post('/api/sales/bulk', async (req, res) => {
   const { date, location, items } = req.body;
 
@@ -150,21 +138,22 @@ app.post('/api/sales/bulk', async (req, res) => {
     res.status(500).json({ error: err.sqlMessage });
   }
 });
-// 更新商品資訊 (單價、單位)
-app.put('/api/products/:id', async (req, res) => {
-  const { id } = req.params;
-  const { name, cost_price_tael, retail_price_tael, unit_type } = req.body;
+// 刪除特定時段的整批紀錄
+app.delete('/api/sales/batch', async (req, res) => {
+  const { date, location, post_time } = req.query;
   try {
+    // 使用 DATE_FORMAT 匹配我們在前端看到的 post_time
     await db.query(
-      'UPDATE products SET name=?, cost_price_tael=?, retail_price_tael=?, unit_type=? WHERE id=?',
-      [name, cost_price_tael, retail_price_tael, unit_type, id]
+      `DELETE FROM sales_records WHERE record_date = ? AND location = ? AND DATE_FORMAT(created_at, "%H:%i") = ?`,
+      [date, location, post_time]
     );
-    res.json({ message: "更新成功" });
+    res.json({ message: "該時段紀錄已刪除" });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
+// 商品維護API
 // 1. 新增商品
 app.post('/api/products', async (req, res) => {
   const { name, cost_price_tael, retail_price_tael, unit_type } = req.body;
@@ -178,8 +167,21 @@ app.post('/api/products', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-// 2. 刪除商品
+// 2. 更新商品資訊
+app.put('/api/products/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, cost_price_tael, retail_price_tael, unit_type } = req.body;
+  try {
+    await db.query(
+      'UPDATE products SET name=?, cost_price_tael=?, retail_price_tael=?, unit_type=? WHERE id=?',
+      [name, cost_price_tael, retail_price_tael, unit_type, id]
+    );
+    res.json({ message: "更新成功" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+// 3. 刪除商品(軟刪除)
 app.delete('/api/products/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -191,19 +193,36 @@ app.delete('/api/products/:id', async (req, res) => {
   }
 });
 
-// 刪除特定時段的整批紀錄
-app.delete('/api/sales/batch', async (req, res) => {
-  const { date, location, post_time } = req.query;
+//地點維護API
+// 取得所有地點
+app.get('/api/locations', async (req, res) => {
   try {
-    // 使用 DATE_FORMAT 匹配我們在前端看到的 post_time
-    await db.query(
-      `DELETE FROM sales_records 
-       WHERE record_date = ? AND location = ? AND DATE_FORMAT(created_at, "%H:%i") = ?`,
-      [date, location, post_time]
-    );
-    res.json({ message: "該時段紀錄已刪除" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const [rows] = await db.query('SELECT * FROM locations');
+    res.send(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send(err);
+  }
+});
+// 新增地點
+app.post('/api/locations', async (req, res) => {
+  const { name } = req.body;
+  try {
+    const [result] = await db.query('INSERT INTO locations (name) VALUES (?)', [name]);
+    res.send({ message: "新增成功", id: result.insertId });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "名稱可能重複了" });
+  }
+});
+// 刪除地點
+app.delete('/api/locations/:id', async (req, res) => {
+  try {
+    const [result] = await db.query('DELETE FROM locations WHERE id = ?', [req.params.id]);
+    res.send({ message: "刪除成功" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ message: "刪除失敗，該地點可能已被歷史紀錄使用" });
   }
 });
 

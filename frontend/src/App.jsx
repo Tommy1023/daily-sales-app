@@ -2,6 +2,7 @@ import { useState } from 'react';
 import DailyTable from './DailyTable';
 import ProductAdmin from './ProductAdmin';
 import HistoryReport from '../HistoryReport';
+import LocationAdmin from './LocationAdmin';
 
 function App() {
   const [view, setView] = useState('daily'); // 'daily', 'admin', 'history'
@@ -44,6 +45,7 @@ function App() {
         <button style={btnStyle(view === 'daily')} onClick={() => setView('daily')}>📝 填寫日報</button>
         <button style={btnStyle(view === 'history')} onClick={() => setView('history')}>📜 歷史查詢</button>
         <button style={btnStyle(view === 'admin')} onClick={() => setView('admin')}>⚙️ 商品維護</button>
+        <button style={btnStyle(view === 'loc_admin')} onClick={() => setView('loc_admin')}>📍 地點維護</button>
       </nav>
 
       {/* // 內容區域切換 */}
@@ -54,12 +56,11 @@ function App() {
             onClearEdit={() => setEditData(null)} 
           />
         )}
-        
         {view === 'history' && (
           <HistoryReport onEditRequest={handleEditRequest} />
         )}
-
         {view === 'admin' && <ProductAdmin />}
+        {view === 'loc_admin' && <LocationAdmin />}
       </main>
     </div>
   );

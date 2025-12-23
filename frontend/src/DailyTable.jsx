@@ -13,11 +13,30 @@ const styles = {
 
 function DailyTable({editData, onClearEdit}) {
   const [date, setDate] = useState(new Date().toLocaleDateString('en-CA'));
-  const [location, setLocation] = useState('台北市場');
+  const [location, setLocation] = useState('');
   const [items, setItems] = useState([]);
-  const locations = ['台北市場', '板橋市場', '新莊市場']
+  const [locationOptions, setLocationOptions] = useState([]);
 
+
+  // 1. 專門負責抓取地點清單的 useEffect (唯獨載入一次)
   useEffect(() => {
+    const fetchLocations = async () => {
+      try {
+        const res = await axios.get('http://localhost:3001/api/locations');
+        setLocationOptions(res.data);
+        
+        // 💡 重點：如果不是編輯模式，預設選取第一個地點
+        if (!editData && res.data.length > 0) {
+          setLocation(res.data[0].name);
+        }
+      } catch (err) {
+        console.error("抓取地點失敗", err);
+      }
+    };
+    fetchLocations();
+  }, []); // 空陣列確保只在組件掛載時執行一次
+
+  useEffect(() => {   
     if (editData && editData.items) {
       // 1. 先處理日期與地點
       if (editData.date) setDate(editData.date);
@@ -26,7 +45,7 @@ function DailyTable({editData, onClearEdit}) {
       // 確保只取 YYYY-MM-DD 這部分
       const formattedDate = new Date(editData.date).toISOString().split('T')[0];
       setDate(formattedDate);
-    }
+      }
       // 2. 處理表格內容
       const formattedItems = (editData.items || []).map(r => {
         const isWeight = r.unit_type === 'weight';
@@ -70,56 +89,82 @@ function DailyTable({editData, onClearEdit}) {
   }, [editData]);
 
   const handleUpdate = (index, field, value) => {
-    const newItems = [...items];
+  const newItems = [...items];
+  const numValue = Number(value);
+    // 1. 驗證：兩不能超過 15 (因為 16 兩就該進位到斤了)
+    if ((field === 'p_tael' || field === 's_tael') && numValue >= 16) {
+      alert("「兩」的數值不能超過 15，請增加「斤」的數值。");
+      return; // 攔截，不更新狀態
+    }
+    // 2. 驗證：數值不能為負數
+    if (numValue < 0) return;
     newItems[index][field] = value;
     setItems(newItems);
   };
-    const handleSave = async () => {
-      if (items.length === 0) return alert("沒有資料可以儲存");
-      if (!date || !location) {
-        console.error("目前的 State 內容:", { date, location });
-        alert("錯誤：日期或地點丟失，請重新選擇。");
-        return;
+  const handleSave = async () => {
+    if (items.length === 0) return alert("沒有資料可以儲存");
+    if (!date || !location) {
+      console.error("目前的 State 內容:", { date, location });
+      alert("錯誤：日期或地點丟失，請重新選擇。");
+      return;
+    }
+    // --- 銷售量驗證邏輯 ---
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      let p_total, s_total;
+
+      if (item.unit_type === 'weight') {
+        p_total = (Number(item.p_jin || 0) * 16) + Number(item.p_tael || 0);
+        s_total = (Number(item.s_jin || 0) * 16) + Number(item.s_tael || 0);
+      } else {
+        p_total = Number(item.p_jin || 0);
+        s_total = Number(item.s_jin || 0);
       }
-    try {
-      // --- 1. 如果是編輯模式，先刪除舊資料 ---
-      if (editData && editData.post_time) {
-        console.log("正在替換舊紀錄...", editData.post_time);
-        await axios.delete('http://localhost:3001/api/sales/batch', {
-          params: { 
-            date: editData.date, 
-            location: editData.location, 
-            post_time: editData.post_time 
-          }
-        });
+
+      if (s_total > p_total) {
+        alert(`錯誤：【${item.product_name}】的銷售量大於進貨量！\n進貨：${p_total} 兩/個\n銷售：${s_total} 兩/個`);
+        return; // 終止儲存
       }
+    }
+  try {
+    // --- 1. 如果是編輯模式，先刪除舊資料 ---
+    if (editData && editData.post_time) {
+      console.log("正在替換舊紀錄...", editData.post_time);
+      await axios.delete('http://localhost:3001/api/sales/batch', {
+        params: { 
+          date: editData.date, 
+          location: editData.location, 
+          post_time: editData.post_time 
+        }
+      });
+    }
 
-    // --- 2. 準備新的 Payload ---
-    const payload = {
-      date: date,
-      location: location,
-      items: items.map(item => ({
-        product_name: item.product_name,
-        unit_price: Number(item.unit_price || 0),
-        cost_price: Number(item.cost_price || 0),
-        p_jin: Number(item.p_jin || 0),
-        p_tael: Number(item.p_tael || 0),
-        s_jin: Number(item.s_jin || 0),
-        s_tael: Number(item.s_tael || 0),
-        unit_type: item.unit_type
-      }))
-    };
+  // --- 2. 準備新的 Payload ---
+  const payload = {
+    date: date,
+    location: location,
+    items: items.map(item => ({
+      product_name: item.product_name,
+      unit_price: Number(item.unit_price || 0),
+      cost_price: Number(item.cost_price || 0),
+      p_jin: Number(item.p_jin || 0),
+      p_tael: Number(item.p_tael || 0),
+      s_jin: Number(item.s_jin || 0),
+      s_tael: Number(item.s_tael || 0),
+      unit_type: item.unit_type
+    }))
+  };
 
-    // --- 3. 儲存新資料 ---
-    const res = await axios.post('http://localhost:3001/api/sales/bulk', payload);
-    alert("✅ 紀錄已更新！");
+  // --- 3. 儲存新資料 ---
+  const res = await axios.post('http://localhost:3001/api/sales/bulk', payload);
+  alert("✅ 紀錄已更新！");
 
-    if (onClearEdit) onClearEdit(); // 清除編輯狀態，跳回正常模式
-  } catch (err) {
-    console.error("儲存失敗:", err);
-    alert("❌ 更新失敗，請檢查網路或後端");
-  }
-    };
+  if (onClearEdit) onClearEdit(); // 清除編輯狀態，跳回正常模式
+} catch (err) {
+  console.error("儲存失敗:", err);
+  alert("❌ 更新失敗，請檢查網路或後端");
+}
+  };
   
   const getCalc = (item) => {
     let p_total_units = 0;
@@ -160,7 +205,7 @@ function DailyTable({editData, onClearEdit}) {
       <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
         <input type="date" style={styles.input} value={date} onChange={e => setDate(e.target.value)} />
         <select style={styles.input} value={location} onChange={e => setLocation(e.target.value)}>
-          {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+          {locationOptions.map(loc => <option key={loc.id} value={loc.name}>{loc.name}</option>)}
         </select>
       </div>
 
