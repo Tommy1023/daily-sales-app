@@ -71,10 +71,9 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
   }, [editData]);
 
   const handleSave = async () => {
-    if (isSaving) return;
-    setIsSaving(true);
     if (items.length === 0) return alert("沒有資料可以儲存");
     if (!date || !location) return alert("錯誤：日期或地點丟失");
+    if (isSaving) return;
 
     for (let item of items) {
       let p_total = item.unit_type === 'weight' ? (Number(item.p_jin || 0) * 16) + Number(item.p_tael || 0) : Number(item.p_jin || 0);
@@ -84,11 +83,15 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
         return;
       }
     }
-
+    setIsSaving(true);
     try {
       if (editData && editData.post_time) {
         await axios.delete('http://localhost:3001/api/sales/batch', {
-          params: { date: editData.date, location: editData.location, post_time: editData.post_time }
+          params: {
+            date: editData.date,
+            location: editData.location,
+            precise_time: editData.precise_time
+          }
         });
       }
       const payload = {

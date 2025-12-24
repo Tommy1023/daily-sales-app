@@ -2,23 +2,18 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 
 function HistoryReport({ onEditRequest, initialQuery }) {
-  // 1. 狀態宣告必須在最頂層
   const [query, setQuery] = useState({ 
-    // 如果有從 App.jsx 傳來的上次查詢條件，就用它，否則用今天
     date: initialQuery?.date || new Date().toLocaleDateString('en-CA'), 
     location: initialQuery?.location || '' 
   });
   const [records, setRecords] = useState([]);
   const [locationOptions, setLocationOptions] = useState([]);
 
-  // 2. 初始載入地點
   useEffect(() => {
     const fetchLocations = async () => {
       try {
         const res = await axios.get('http://localhost:3001/api/locations');
         setLocationOptions(res.data);
-        
-        // 如果 initialQuery 沒有地點，才預設選第一個
         if (!initialQuery?.location && res.data.length > 0) {
           setQuery(prev => ({ ...prev, location: res.data[0].name }));
         }
@@ -29,16 +24,13 @@ function HistoryReport({ onEditRequest, initialQuery }) {
     fetchLocations();
   }, [initialQuery]);
 
-  // 3. 自動搜尋邏輯：當 query 準備好且有 initialQuery 時觸發
   useEffect(() => {
     if (initialQuery?.location && initialQuery?.date) {
       handleSearch(); 
     }
-  }, []); // 僅在組件掛載時執行一次
+  }, []); 
 
   const handleSearch = async () => {
-    // 這裡要使用最新的 query，或者直接傳入參數
-    // 但在 handleSearch 內部抓取 state 是沒問題的
     if (!query.location) return; 
     try {
       const res = await axios.get('http://localhost:3001/api/sales/report', { params: query });
@@ -49,13 +41,15 @@ function HistoryReport({ onEditRequest, initialQuery }) {
     }
   };
 
-  // --- 接下來是計算與渲染邏輯 (保持不變) ---
-
-  const handleDeleteBatch = async (time) => {
-    if (!window.confirm(`確定要刪除 ${time} 的整批紀錄嗎？`)) return;
+  const handleDeleteBatch = async (preciseTime) => {
+    if (!window.confirm(`確定要刪除這批紀錄嗎？`)) return;
     try {
       await axios.delete('http://localhost:3001/api/sales/batch', {
-        params: { date: query.date, location: query.location, post_time: time }
+        params: { 
+          date: query.date, 
+          location: query.location, 
+          post_time: preciseTime 
+        }
       });
       handleSearch();
     } catch (err) {
@@ -63,11 +57,17 @@ function HistoryReport({ onEditRequest, initialQuery }) {
     }
   };
 
+  // 1. 修改分組邏輯：使用精確時間分組，避免同一分鐘合併
   const grouped = records.reduce((acc, r) => {
-    const time = r.post_time; 
-    if (!time) return acc;
-    if (!acc[time]) acc[time] = [];
-    acc[time].push(r);
+    // 優先從後端抓取 precise_time，並處理成 HH:mm:ss 格式字串
+    let timeKey = r.precise_time;
+    if (timeKey && typeof timeKey === 'string' && timeKey.includes('T')) {
+      timeKey = timeKey.split('T')[1].substring(0, 8);
+    }
+    
+    if (!timeKey) return acc;
+    if (!acc[timeKey]) acc[timeKey] = [];
+    acc[timeKey].push(r);
     return acc;
   }, {});
 
@@ -102,7 +102,7 @@ function HistoryReport({ onEditRequest, initialQuery }) {
           <label className="block text-xs text-neutral-100 px-2 mb-1">日期</label>
           <input 
             type="date" 
-            className="bg-neutral-800 border border-neutral-100 rounded-xl px-3 py-2 text-white outline-none focus:border-sky-500 items-end" 
+            className="bg-neutral-800 border border-neutral-700 rounded-xl px-3 py-2 text-white outline-none focus:border-sky-500" 
             value={query.date} 
             onChange={e => setQuery({...query, date: e.target.value})} 
           />
@@ -110,7 +110,7 @@ function HistoryReport({ onEditRequest, initialQuery }) {
         <div>
           <label className="block text-xs text-neutral-100 px-2 mb-1">地點</label>
           <select 
-            className="bg-neutral-800 border border-neutral-100 rounded-xl px-3 py-2 text-white outline-none focus:border-sky-500 items-end" 
+            className="bg-neutral-800 border border-neutral-700 rounded-xl px-3 py-2 text-white outline-none focus:border-sky-500" 
             value={query.location} 
             onChange={e => setQuery({...query, location: e.target.value})}
           >
@@ -126,17 +126,31 @@ function HistoryReport({ onEditRequest, initialQuery }) {
       </div>
 
       <div className="space-y-10">
-        {Object.keys(grouped).map((time) => {
-          const groupItems = grouped[time];
+        {/* 2. 確保在這裡使用 preciseKey 當作變數名稱，並正確範圍化 */}
+        {Object.keys(grouped).sort((a, b) => b.localeCompare(a)).map((preciseKey) => {
+          const groupItems = grouped[preciseKey];
           const totals = calculateGroupTotals(groupItems);
-          
+          const displayTime = preciseKey.substring(0, 5); // 顯示 HH:mm
+
           return (
-            <div key={time} className="bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden">
+            <div key={preciseKey} className="bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden">
               <div className="p-4 bg-neutral-800 flex justify-between items-center">
-                <span className="font-bold text-sky-400">🕒 儲存時間：{time}</span>
+                <div className="flex items-baseline gap-2">
+                    <span className="font-bold text-sky-400">🕒 儲存時間：{displayTime}</span>
+                </div>
                 <div className="flex gap-2">
-                  <button onClick={() => onEditRequest(groupItems, query.date, query.location, time)} className="bg-sky-700 hover:bg-sky-600 text-white px-3 py-1 rounded text-sm">✏️ 編輯</button>
-                  <button onClick={() => handleDeleteBatch(time)} className="bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded text-sm">🗑️ 刪除</button>
+                  <button 
+                    onClick={() => onEditRequest(groupItems, query.date, query.location, preciseKey)} 
+                    className="bg-sky-700 hover:bg-sky-600 text-white px-3 py-1 rounded text-sm"
+                  >
+                    ✏️ 編輯
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteBatch(preciseKey)} 
+                    className="bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
+                  >
+                    🗑️ 刪除
+                  </button>
                 </div>
               </div>
 

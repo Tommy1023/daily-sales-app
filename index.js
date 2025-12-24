@@ -12,9 +12,14 @@ app.use(express.json());  // 讓 Express 可以解析 JSON 格式的資料
 // 1. 建立資料庫連線池 (Pool)
 const db = mysql.createPool({
   host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
   user: process.env.DB_USER,
   password: process.env.DB_PASS,
   database: process.env.DB_NAME,
+  ssl: {
+    rejectUnauthorized:false
+  },
+  timezone: '+08:00',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
@@ -94,23 +99,23 @@ app.post('/api/sales', async (req, res) => {
 app.get('/api/sales/report', async (req, res) => {
   const { date, location } = req.query;
 
-  // 1. 確保 SQL 語法正確
+  // 使用 CONVERT_TZ(欄位, 源時區, 目標時區)
+  // 將 UTC 轉為台北時間 (+08:00)
   const sql = `
-    SELECT *, DATE_FORMAT(created_at, "%H:%i") as post_time 
+    SELECT *, 
+    DATE_FORMAT(CONVERT_TZ(created_at, '+00:00', '+08:00'), '%H:%i') as post_time,
+    CONVERT_TZ(created_at, '+00:00', '+08:00') as precise_time
     FROM sales_records 
     WHERE record_date = ? AND location = ? 
     ORDER BY created_at DESC
   `;
 
   try {
-    // 2. ✅ 使用 await 取得結果
     const [results] = await db.query(sql, [date, location]);
-
-    // 3. 回傳 JSON
     res.json(results);
   } catch (err) {
-    console.error("資料庫查詢失敗:", err);
-    res.status(500).json({ error: "資料庫查詢失敗", message: err.message });
+    console.error("報表查詢失敗:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 // 批次儲存銷售紀錄 (更新歷史紀錄)
@@ -148,16 +153,24 @@ app.post('/api/sales/bulk', async (req, res) => {
 });
 // 刪除特定時段的整批紀錄
 app.delete('/api/sales/batch', async (req, res) => {
+  // 這裡我們統一用 post_time 這個名稱接收
   const { date, location, post_time } = req.query;
+
+  // 使用 LIKE 或是根據長度判斷。最簡單的方法是讓 SQL 支援精確比對
+  const sql = `
+    DELETE FROM sales_records 
+    WHERE record_date = ? 
+    AND location = ? 
+    AND DATE_FORMAT(CONVERT_TZ(created_at, '+00:00', '+08:00'), 
+        IF(LENGTH(?) > 5, '%H:%i:%s', '%H:%i')) = ?
+  `;
+
   try {
-    // 使用 DATE_FORMAT 匹配我們在前端看到的 post_time
-    await db.query(
-      `DELETE FROM sales_records WHERE record_date = ? AND location = ? AND DATE_FORMAT(created_at, "%H:%i") = ?`,
-      [date, location, post_time]
-    );
-    res.json({ message: "該時段紀錄已刪除" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const [result] = await db.query(sql, [date, location, post_time, post_time]);
+    res.json({ message: "刪除成功", affectedRows: result.affectedRows });
+  } catch (err) {
+    console.error("刪除失敗:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
