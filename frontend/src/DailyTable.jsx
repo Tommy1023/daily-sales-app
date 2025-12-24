@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
-function DailyTable({ editData, onClearEdit }) {
+function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
   const [date, setDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [location, setLocation] = useState('');
   const [items, setItems] = useState([]);
   const [locationOptions, setLocationOptions] = useState([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const originalItems = useRef([]); // 用來存放編輯前的原始備份
 
   useEffect(() => {
     const fetchLocations = async () => {
@@ -45,6 +47,7 @@ function DailyTable({ editData, onClearEdit }) {
         };
       });
       setItems(formattedItems);
+      originalItems.current = JSON.parse(JSON.stringify(formattedItems));// 📝 關鍵：將處理好的格式化資料存入備份
     } else {
       const fetchProducts = async () => {
         try {
@@ -67,19 +70,9 @@ function DailyTable({ editData, onClearEdit }) {
     }
   }, [editData]);
 
-  const handleUpdate = (index, field, value) => {
-    const newItems = [...items];
-    const numValue = Number(value);
-    if ((field === 'p_tael' || field === 's_tael') && numValue >= 16) {
-      alert("「兩」的數值不能超過 15，請增加「斤」的數值。");
-      return;
-    }
-    if (numValue < 0) return;
-    newItems[index][field] = value;
-    setItems(newItems);
-  };
-
   const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
     if (items.length === 0) return alert("沒有資料可以儲存");
     if (!date || !location) return alert("錯誤：日期或地點丟失");
 
@@ -112,11 +105,42 @@ function DailyTable({ editData, onClearEdit }) {
           unit_type: item.unit_type
         }))
       };
-      await axios.post('http://localhost:3001/api/sales/bulk', payload);
+    await axios.post('http://localhost:3001/api/sales/bulk', payload);
       alert("✅ 紀錄已更新！");
-      if (onClearEdit) onClearEdit();
+      if (onClearEdit) {
+        onClearEdit();
+      }
+      if (onSaveSuccess) {
+        onSaveSuccess();
+      }
     } catch (err) {
       alert("❌ 儲存失敗");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+   const handleUpdate = (index, field, value) => {
+    const newItems = [...items];
+    const numValue = Number(value);
+    if ((field === 'p_tael' || field === 's_tael') && numValue >= 16) {
+      alert("「兩」的數值不能超過 15，請增加「斤」的數值。");
+      return;
+    }
+    if (numValue < 0) return;
+    newItems[index][field] = value;
+    setItems(newItems);
+  };
+  const handleReset = () => {
+    if (editData) {
+      // 編輯模式：還原到備份的原始數值
+      if (window.confirm("確定要將資料還原回編輯前的狀態嗎？")) {
+        setItems(JSON.parse(JSON.stringify(originalItems.current)));
+      }
+    } else {
+      // 非編輯模式（新增模式）：可以維持 reload 或清空數值
+      if (window.confirm("確定要重置目前填寫的內容嗎？")) {
+        window.location.reload(); 
+      }
     }
   };
   
@@ -148,8 +172,8 @@ function DailyTable({ editData, onClearEdit }) {
       </div>
 
       <div className="flex flex-wrap gap-4 bg-neutral-800 p-4 rounded-2xl border border-neutral-700">
-        <input type="date" className="bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2 text-white outline-none focus:ring-2 focus:ring-sky-500" value={date} onChange={e => setDate(e.target.value)} />
-        <select className="bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2 text-white outline-none focus:ring-2 focus:ring-sky-500" value={location} onChange={e => setLocation(e.target.value)}>
+        <input type="date" className="bg-neutral-900 border border-neutral-100 rounded-xl px-4 py-2 text-white outline-none focus:ring-2 focus:ring-sky-500" value={date} onChange={e => setDate(e.target.value)} />
+        <select className="bg-neutral-900 border border-neutral-100 rounded-xl px-4 py-2 text-white outline-none focus:ring-2 focus:ring-sky-500" value={location} onChange={e => setLocation(e.target.value)}>
           {locationOptions.map(loc => <option key={loc.id} value={loc.name}>{loc.name}</option>)}
         </select>
       </div>
@@ -210,7 +234,7 @@ function DailyTable({ editData, onClearEdit }) {
       </div>
 
       <div className="flex justify-end gap-4 mt-8">
-        <button onClick={() => window.location.reload()} className="px-6 py-2.5 bg-neutral-800 text-neutral-400 hover:bg-neutral-700 rounded-xl font-bold border border-neutral-700 transition-all">重置表格</button>
+        <button onClick={handleReset} className="px-6 py-2.5 bg-neutral-800 text-neutral-400 hover:bg-neutral-700 rounded-xl font-bold border border-neutral-700 transition-all">{ editData ? '還原原始數值': '重置表格'}</button>
         <button onClick={handleSave} className="px-10 py-2.5 bg-sky-500 text-neutral-900 hover:bg-sky-400 rounded-xl font-bold shadow-lg shadow-sky-500/20 transition-all transform active:scale-95">儲存紀錄</button>
       </div>
     </div>

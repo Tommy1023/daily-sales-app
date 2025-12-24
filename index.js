@@ -91,18 +91,26 @@ app.post('/api/sales', async (req, res) => {
   }
 });
 // 取得歷史記錄
-app.get('/api/sales/history', async (req, res) => {
+app.get('/api/sales/report', async (req, res) => {
   const { date, location } = req.query;
+
+  // 1. 確保 SQL 語法正確
+  const sql = `
+    SELECT *, DATE_FORMAT(created_at, "%H:%i") as post_time 
+    FROM sales_records 
+    WHERE record_date = ? AND location = ? 
+    ORDER BY created_at DESC
+  `;
+
   try {
-    // 依據建立時間排序，這樣同一天的紀錄會按順序排好
-    const [rows] = await db.query(
-      'SELECT *, DATE_FORMAT(created_at, "%H:%i") as post_time FROM sales_records WHERE record_date = ? AND location = ? ORDER BY created_at DESC',
-      [date, location]
-    );
-    res.json(rows);
-  } catch (error) {
-    console.error("查詢歷史出錯:", error);
-    res.status(500).json({ error: error.message });
+    // 2. ✅ 使用 await 取得結果
+    const [results] = await db.query(sql, [date, location]);
+
+    // 3. 回傳 JSON
+    res.json(results);
+  } catch (err) {
+    console.error("資料庫查詢失敗:", err);
+    res.status(500).json({ error: "資料庫查詢失敗", message: err.message });
   }
 });
 // 批次儲存銷售紀錄 (更新歷史紀錄)
@@ -152,6 +160,7 @@ app.delete('/api/sales/batch', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 // 商品維護API
 // 1. 新增商品

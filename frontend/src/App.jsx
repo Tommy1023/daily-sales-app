@@ -7,6 +7,7 @@ import LocationAdmin from './LocationAdmin';
 function App() {
   const [view, setView] = useState('daily');
   const [editData, setEditData] = useState(null);
+  const [historyQuery, setHistoryQuery] = useState(null);
 
   const handleEditRequest = (records, date, location, time) => {
     setEditData({
@@ -15,7 +16,13 @@ function App() {
       items: records,
       post_time: time
     });
+    setHistoryQuery({ date, location });
     setView('daily');
+  };
+
+  const handleSaveSuccess = () => {
+    setEditData(null);
+    setView('history'); // 儲存後自動跳轉
   };
 
   return (
@@ -52,11 +59,15 @@ function App() {
         {view === 'daily' && (
           <DailyTable 
             editData={editData} 
+            onSaveSuccess={handleSaveSuccess}
             onClearEdit={() => setEditData(null)} 
           />
         )}
         {view === 'history' && (
-          <HistoryReport onEditRequest={handleEditRequest} />
+          <HistoryReport
+            onEditRequest={handleEditRequest}
+            initialQuery={historyQuery}
+          />
         )}
         {view === 'admin' && <ProductAdmin />}
         {view === 'loc_admin' && <LocationAdmin />}
