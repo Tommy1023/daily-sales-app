@@ -136,7 +136,7 @@ function HistoryReport({ onEditRequest, initialQuery }) {
             <div key={preciseKey} className="bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden">
               <div className="p-4 bg-neutral-800 flex justify-between items-center">
                 <div className="flex items-baseline gap-2">
-                    <span className="font-bold text-sky-400">🕒 儲存時間：{displayTime}</span>
+                    <span className="font-bold text-sky-400">🕒 {displayTime}</span>
                 </div>
                 <div className="flex gap-2">
                   <button 

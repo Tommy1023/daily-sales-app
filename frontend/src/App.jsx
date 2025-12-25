@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import DailyTable from './DailyTable';
 import ProductAdmin from './ProductAdmin';
-import HistoryReport from '../HistoryReport';
+import HistoryReport from './HistoryReport';
 import LocationAdmin from './LocationAdmin';
 
 function App() {
   const [view, setView] = useState('daily');
   const [editData, setEditData] = useState(null);
   const [historyQuery, setHistoryQuery] = useState(null);
+  const [isEditMode, setIsEditMode] = useState(false);
 
   const handleEditRequest = (records, date, location, time) => {
     setEditData({
@@ -18,6 +19,7 @@ function App() {
     });
     setHistoryQuery({ date, location });
     setView('daily');
+    setIsEditMode(true)
   };
 
   const handleSaveSuccess = () => {
@@ -61,6 +63,8 @@ function App() {
             editData={editData} 
             onSaveSuccess={handleSaveSuccess}
             onClearEdit={() => setEditData(null)} 
+            isEditMode={isEditMode}
+            onCancelEdit={()=>setIsEditMode(false)}
           />
         )}
         {view === 'history' && (

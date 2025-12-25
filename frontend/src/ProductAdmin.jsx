@@ -38,6 +38,10 @@ function ProductAdmin() {
     } catch (err) { alert("更新失敗"); }
   };
 
+  const handleCancel = async (p) => {
+    setEditingId(null);
+  };
+
   const handleDel = async (id) => {
     if (!window.confirm("確定要刪除這項商品嗎？")) return;
     try {
@@ -105,7 +109,10 @@ function ProductAdmin() {
                 </td>
                 <td className="p-4 text-right space-x-2">
                   {editingId === p.id ? 
-                    <button className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-lg shadow-emerald-600/20" onClick={() => handleSave(p)}>儲存</button>
+                    <>
+                      <button className="text-green-400 hover:text-green-300 font-bold text-sm px-2 py-1 transition-colors" onClick={() => handleSave(p)}>儲存</button>
+                      <button className="text-neutral-200 hover:text-neutral-300 font-bold text-sm px-2 py-1 transition-colors" onClick={() => handleCancel(p)}>取消</button>
+                    </>
                     : (
                       <>
                         <button className="text-sky-400 hover:text-sky-300 font-bold text-sm px-2 py-1 transition-colors" onClick={() => setEditingId(p.id)}>編輯</button>
