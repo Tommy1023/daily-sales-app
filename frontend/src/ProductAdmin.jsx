@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 function ProductAdmin() {
   const [products, setProducts] = useState([]);
@@ -10,7 +11,7 @@ function ProductAdmin() {
 
   const fetchProducts = async () => {
     try {
-      const res = await axios.get('http://localhost:3001/api/products');
+      const res = await axios.get(`${API_URL}/api/products`);
       setProducts(res.data);
     } catch (err) { console.error("載入失敗", err); }
   };
@@ -18,7 +19,7 @@ function ProductAdmin() {
   const handleAdd = async () => {
     if (!newP.name || !newP.cost || !newP.retail) return alert("請填寫完整資訊");
     try {
-      await axios.post('http://localhost:3001/api/products', {
+      await axios.post(`${API_URL}/api/products`, {
         name: newP.name,
         cost_price_tael: newP.cost,
         retail_price_tael: newP.retail,
@@ -32,7 +33,7 @@ function ProductAdmin() {
 
   const handleSave = async (p) => {
     try {
-      await axios.put(`http://localhost:3001/api/products/${p.id}`, p);
+      await axios.put(`${API_URL}/api/products/${p.id}`, p);
       setEditingId(null);
       alert("更新成功");
     } catch (err) { alert("更新失敗"); }
@@ -45,7 +46,7 @@ function ProductAdmin() {
   const handleDel = async (id) => {
     if (!window.confirm("確定要刪除這項商品嗎？")) return;
     try {
-      await axios.delete(`http://localhost:3001/api/products/${id}`);
+      await axios.delete(`${API_URL}/api/products/${id}`);
       fetchProducts();
     } catch (err) { alert("刪除失敗"); }
   };

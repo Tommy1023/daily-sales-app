@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 function LocationAdmin() {
   const [locations, setLocations] = useState([]);
@@ -7,7 +8,7 @@ function LocationAdmin() {
 
   const fetchLocations = async () => {
     try {
-      const res = await axios.get('http://localhost:3001/api/locations');
+      const res = await axios.get(`${API_URL}/api/locations`);
       setLocations(res.data);
     } catch (err) { console.error("載入地點失敗", err); }
   };
@@ -17,7 +18,7 @@ function LocationAdmin() {
   const handleAdd = async () => {
     if (!newName.trim()) return alert("請輸入地點名稱");
     try {
-      await axios.post('http://localhost:3001/api/locations', { name: newName });
+      await axios.post(`${API_URL}/api/locations`, { name: newName });
       setNewName('');
       fetchLocations();
     } catch (err) { alert("新增失敗"); }
@@ -26,7 +27,7 @@ function LocationAdmin() {
   const handleDelete = async (id, name) => {
     if (!window.confirm(`確定要刪除「${name}」嗎？`)) return;
     try {
-      await axios.delete(`http://localhost:3001/api/locations/${id}`);
+      await axios.delete(`${API_URL}/api/locations/${id}`);
       fetchLocations();
     } catch (err) { alert("刪除失敗"); }
   };

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 function HistoryReport({ onEditRequest, initialQuery }) {
   const [query, setQuery] = useState({ 
@@ -12,7 +13,7 @@ function HistoryReport({ onEditRequest, initialQuery }) {
   useEffect(() => {
     const fetchLocations = async () => {
       try {
-        const res = await axios.get('http://localhost:3001/api/locations');
+        const res = await axios.get(`${API_URL}/api/locations`);
         setLocationOptions(res.data);
         if (!initialQuery?.location && res.data.length > 0) {
           setQuery(prev => ({ ...prev, location: res.data[0].name }));
@@ -33,7 +34,7 @@ function HistoryReport({ onEditRequest, initialQuery }) {
   const handleSearch = async () => {
     if (!query.location) return; 
     try {
-      const res = await axios.get('http://localhost:3001/api/sales/report', { params: query });
+      const res = await axios.get(`${API_URL}/api/sales/report`, { params: query });
       setRecords(res.data);
     } catch (err) {
       console.error(err);
@@ -44,7 +45,7 @@ function HistoryReport({ onEditRequest, initialQuery }) {
   const handleDeleteBatch = async (preciseTime) => {
     if (!window.confirm(`確定要刪除這批紀錄嗎？`)) return;
     try {
-      await axios.delete('http://localhost:3001/api/sales/batch', {
+      await axios.delete(`${API_URL}/api/sales/batch`, {
         params: { 
           date: query.date, 
           location: query.location, 

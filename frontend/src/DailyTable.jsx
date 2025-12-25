@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-function DailyTable({ editData, onClearEdit, onSaveSuccess, isEditMode, onCancelEdit}) {
+function DailyTable({ editData, onClearEdit, onSaveSuccess, isEditMode, onCancelEdit }) {
   const [date, setDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [location, setLocation] = useState('');
   const [items, setItems] = useState([]);
@@ -12,7 +13,7 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess, isEditMode, onCancel
   useEffect(() => {
     const fetchLocations = async () => {
       try {
-        const res = await axios.get('http://localhost:3001/api/locations');
+        const res = await axios.get(`${API_URL}/api/locations`);
         setLocationOptions(res.data);
         if (!editData && res.data.length > 0) setLocation(res.data[0].name);
       } catch (err) { console.error("抓取地點失敗", err); }
@@ -47,7 +48,7 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess, isEditMode, onCancel
     } else {
       const fetchProducts = async () => {
         try {
-          const res = await axios.get('http://localhost:3001/api/products');
+          const res = await axios.get(`${API_URL}/api/products`);
           setItems(res.data.map(p => ({
             product_name: p.name, unit_type: p.unit_type || 'weight',
             unit_price: p.retail_price_tael, cost_price: p.cost_price_tael,
@@ -72,7 +73,7 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess, isEditMode, onCancel
     try {
       if (editData && editData.post_time) {
         // 核心修正：將參數名從 precise_time 改為 post_time 以對應後端
-        await axios.delete('http://localhost:3001/api/sales/batch', {
+        await axios.delete(`${API_URL}/api/sales/batch`, {
           params: { date: editData.date, location: editData.location, post_time: editData.post_time }
         });
       }
@@ -83,7 +84,7 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess, isEditMode, onCancel
           p_jin: Number(item.p_jin), p_tael: Number(item.p_tael), s_jin: Number(item.s_jin), s_tael: Number(item.s_tael), unit_type: item.unit_type
         }))
       };
-      await axios.post('http://localhost:3001/api/sales/bulk', payload);
+      await axios.post(`${API_URL}/api/sales/bulk`, payload);
       alert("✅ 儲存成功！");
       onClearEdit();
       onSaveSuccess();
