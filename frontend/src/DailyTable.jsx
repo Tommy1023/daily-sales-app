@@ -1,193 +1,369 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-function DailyTable({ editData, onClearEdit, onSaveSuccess, isEditMode, onCancelEdit }) {
-  const [date, setDate] = useState(new Date().toLocaleDateString('en-CA'));
-  const [location, setLocation] = useState('');
-  const [items, setItems] = useState([]);
-  const [locationOptions, setLocationOptions] = useState([]);
-  const [isSaving, setIsSaving] = useState(false);
-  const originalItems = useRef([]);
+// 🛠️ 輔助函式：將 ISO 時間轉為 MySQL 格式 (YYYY-MM-DD HH:mm:ss)
+const formatToMySQLDateTime = (isoString) => {
+  if (!isoString) return null;
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return isoString; // 若轉換失敗則回傳原值
 
-  useEffect(() => {
-    const fetchLocations = async () => {
-      try {
-        const res = await axios.get(`${API_URL}/api/locations`);
-        setLocationOptions(res.data);
-        if (!editData && res.data.length > 0) setLocation(res.data[0].name);
-      } catch (err) { console.error("抓取地點失敗", err); }
-    };
-    fetchLocations();
-  }, [editData]);
+  const pad = (n) => n.toString().padStart(2, '0');
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  const seconds = pad(date.getSeconds());
 
-  useEffect(() => {   
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+};
+
+function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
+  
+  // 1. 初始化狀態邏輯
+  const getInitialState = () => {
     if (editData && editData.items) {
-      if (editData.location) setLocation(editData.location);
-      if (editData.date) {
-        // 修正日期顯示問題：避免 UTC 跨日少一天
-        const d = new Date(editData.date);
-        const formattedDate = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-        setDate(formattedDate);
-      }
-      const formattedItems = (editData.items || []).map(r => {
-        const isWeight = r.unit_type === 'weight';
-        const pTotal = Number(r.purchase_total_units || 0);
-        const sTotal = Number(r.sale_total_units || 0);
-        return {
-          product_name: r.product_name, unit_type: r.unit_type,
-          unit_price: r.snapshot_retail_price || 0, cost_price: r.snapshot_cost_price || 0,
-          p_jin: isWeight ? Math.floor(pTotal / 16) : pTotal,
-          p_tael: isWeight ? (pTotal % 16) : 0,
-          s_jin: isWeight ? Math.floor(sTotal / 16) : sTotal,
-          s_tael: isWeight ? (sTotal % 16) : 0
-        };
-      });
-      setItems(formattedItems);
-      originalItems.current = JSON.parse(JSON.stringify(formattedItems));
-    } else {
-      const fetchProducts = async () => {
-        try {
-          const res = await axios.get(`${API_URL}/api/products`);
-          setItems(res.data.map(p => ({
-            product_name: p.name, unit_type: p.unit_type || 'weight',
-            unit_price: p.retail_price_tael, cost_price: p.cost_price_tael,
-            p_jin: '', p_tael: '', s_jin: '', s_tael: ''
-          })));
-        } catch (err) { console.error("載入失敗", err); }
+      // 編輯模式
+      return {
+        date: editData.date ? editData.date.split('T')[0] : new Date().toLocaleDateString('en-CA'),
+        location: editData.location || '',
+        rate: editData.items.length > 0 ? Number(editData.items[0].commission_rate) : 0.16,
+        items: editData.items.map(item => {
+          const isWeight = item.unit_type === 'weight' || item.unit_type === '兩';
+          return {
+            ...item,
+            price: item.snapshot_retail_price,
+            // 編輯時還原資料，若無值則預設為 '' (空字串) 以便顯示 placeholder
+            p_jin: isWeight ? Math.floor(item.purchase_total_units / 16) : '',
+            p_tael: isWeight ? item.purchase_total_units % 16 : '',
+            p_qty: !isWeight ? item.purchase_total_units : '',
+            r_jin: isWeight ? Math.floor(item.return_total_units / 16) : '',
+            r_tael: isWeight ? item.return_total_units % 16 : '',
+            r_qty: !isWeight ? item.return_total_units : '',
+          };
+        })
       };
-      fetchProducts();
     }
-  }, [editData]);
-
-  const handleSave = async () => {
-    if (items.length === 0 || !date || !location || isSaving) return;
-
-    for (let item of items) {
-      let p_total = item.unit_type === 'weight' ? (Number(item.p_jin || 0) * 16) + Number(item.p_tael || 0) : Number(item.p_jin || 0);
-      let s_total = item.unit_type === 'weight' ? (Number(item.s_jin || 0) * 16) + Number(item.s_tael || 0) : Number(item.s_jin || 0);
-      if (s_total > p_total) return alert(`錯誤：【${item.product_name}】銷售大於進貨！`);
-    }
-
-    setIsSaving(true);
-    try {
-      if (editData && editData.post_time) {
-        // 核心修正：將參數名從 precise_time 改為 post_time 以對應後端
-        await axios.delete(`${API_URL}/api/sales/batch`, {
-          params: { date: editData.date, location: editData.location, post_time: editData.post_time }
-        });
-      }
-      const payload = {
-        date, location,
-        items: items.map(item => ({
-          product_name: item.product_name, unit_price: Number(item.unit_price), cost_price: Number(item.cost_price),
-          p_jin: Number(item.p_jin), p_tael: Number(item.p_tael), s_jin: Number(item.s_jin), s_tael: Number(item.s_tael), unit_type: item.unit_type
-        }))
-      };
-      await axios.post(`${API_URL}/api/sales/bulk`, payload);
-      alert("✅ 儲存成功！");
-      onClearEdit();
-      onSaveSuccess();
-    } catch (err) { alert("❌ 儲存失敗"); } finally { setIsSaving(false); }
+    
+    // 新增模式
+    return {
+      date: new Date().toLocaleDateString('en-CA'),
+      location: '',
+      rate: 0.16,
+      items: [] 
+    };
   };
 
-  const handleUpdate = (idx, field, val) => {
+  const initialState = getInitialState();
+
+  const [date, setDate] = useState(initialState.date);
+  const [location, setLocation] = useState(initialState.location);
+  const [commissionRate, setCommissionRate] = useState(initialState.rate);
+  const [items, setItems] = useState(initialState.items);
+  
+  const [locationOptions, setLocationOptions] = useState([]);
+  const originalItems = useRef(editData); // 紀錄原始資料供刪除用
+
+  // 2. 載入地點與商品 (僅在組件掛載時執行一次)
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const [locRes, prodRes] = await Promise.all([
+          axios.get(`${API_URL}/api/locations`),
+          axios.get(`${API_URL}/api/products`)
+        ]);
+        
+        setLocationOptions(locRes.data);
+        
+        // 若為新增模式且無地點，預設選第一個
+        if (!editData && locRes.data.length > 0 && !location) {
+            setLocation(locRes.data[0].name);
+        }
+
+        // 若為新增模式，載入商品列表建立空表格
+        if (!editData && items.length === 0) {
+          const defaultItems = prodRes.data.map(p => ({
+            id: p.id,
+            product_name: p.name,
+            unit_type: p.unit_type,
+            price: p.retail_price_tael,
+            p_jin: '', p_tael: '', p_qty: '',
+            r_jin: '', r_tael: '', r_qty: '',
+          }));
+          setItems(defaultItems);
+        }
+      } catch (err) { console.error("初始化失敗", err); }
+    };
+    init();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 3. 輸入處理 (含防呆)
+  const handleItemChange = (index, field, value) => {
+    // 防呆：兩的數值需小於 16
+    if ((field === 'p_tael' || field === 'r_tael') && value !== '') {
+      if (Number(value) >= 16) {
+        alert('兩的數值必須小於 16');
+        return; // 阻止更新
+      }
+    }
+
     const newItems = [...items];
-    if (field.includes('tael') && Number(val) >= 16) return alert("兩不可超過 15");
-    newItems[idx][field] = val; setItems(newItems);
+    newItems[index][field] = value;
+    setItems(newItems);
   };
 
+  // 重置表格功能
   const handleReset = () => {
     if (editData) {
-      if (window.confirm("還原編輯前狀態？")) setItems(JSON.parse(JSON.stringify(originalItems.current)));
+      // 情況 A：編輯模式 -> 還原到原始資料 (Undo)
+      if (confirm('確定要還原至原始紀錄嗎？目前的修改將會消失。')) {
+        const originalState = getInitialState(); // 重新呼叫初始化函式抓取 editData
+        setItems(originalState.items);
+        setCommissionRate(originalState.rate);
+        setDate(originalState.date);
+        setLocation(originalState.location);
+      }
     } else {
-      if (window.confirm("重置表格？")) window.location.reload(); 
+      // 情況 B：新增模式 -> 清空所有欄位 (Clear)
+      if (confirm('確定要清空所有輸入嗎？')) {
+        const resetItems = items.map(item => ({
+          ...item,
+          p_jin: '', p_tael: '', p_qty: '',
+          r_jin: '', r_tael: '', r_qty: ''
+        }));
+        setItems(resetItems);
+      }
+    }
+  };
+  // 即時計算邏輯
+  const calculateRow = (item) => {
+    const isWeight = item.unit_type === 'weight' || item.unit_type === '兩';
+    const price = parseFloat(item.price) || 0;
+    
+    // 計算出貨量
+    const shipQty = isWeight 
+      ? (parseFloat(item.p_jin) || 0) * 16 + (parseFloat(item.p_tael) || 0)
+      : (parseFloat(item.p_qty) || 0);
+      
+    // 計算回收量
+    const returnQty = isWeight
+      ? (parseFloat(item.r_jin) || 0) * 16 + (parseFloat(item.r_tael) || 0)
+      : (parseFloat(item.r_qty) || 0);
+
+    const shipVal = shipQty * price;
+    const returnVal = returnQty * price;
+    const netSales = shipVal - returnVal;
+    const commission = netSales * commissionRate;
+    const revenue = netSales - commission;
+
+    return { shipVal, returnVal, netSales, commission, revenue };
+  };
+
+  // 總計
+  const totals = items.reduce((acc, item) => {
+    const row = calculateRow(item);
+    return {
+      shipVal: acc.shipVal + row.shipVal,
+      returnVal: acc.returnVal + row.returnVal,
+      netSales: acc.netSales + row.netSales,
+      commission: acc.commission + row.commission,
+      revenue: acc.revenue + row.revenue
+    };
+  }, { shipVal: 0, returnVal: 0, netSales: 0, commission: 0, revenue: 0 });
+
+  // 4. 儲存功能 (關鍵修正)
+  const handleSave = async () => {
+    if (!date || !location) return alert("請選擇日期與地點");
+    
+    // 準備要送出的資料：將空值轉為 0
+    const validItems = items.map(i => ({ 
+      ...i, 
+      commission_rate: commissionRate,
+      // 將空字串轉為 0，避免後端收到 NaN 或 null
+      p_jin: i.p_jin || 0,
+      p_tael: i.p_tael || 0,
+      p_qty: i.p_qty || 0,
+      r_jin: i.r_jin || 0,
+      r_tael: i.r_tael || 0,
+      r_qty: i.r_qty || 0
+    }));
+
+    if (validItems.length === 0) return alert("請至少輸入一項數據");
+
+    try {
+      // 若是編輯模式，先執行「刪除舊資料」
+      if (editData) {
+        // 🔥 關鍵修正：確保 created_at 格式為 MySQL 可接受的字串
+        const rawCreatedAt = originalItems.current.created_at || (originalItems.current.items[0] && originalItems.current.items[0].created_at);
+        const formattedCreatedAt = formatToMySQLDateTime(rawCreatedAt);
+
+        if (!formattedCreatedAt) {
+          throw new Error("找不到原始資料的時間戳記，無法更新");
+        }
+
+        await axios.delete(`${API_URL}/api/sales/batch`, { 
+          data: { 
+            date: originalItems.current.date, // 舊的日期
+            location: originalItems.current.location, // 舊的地點
+            created_at: formattedCreatedAt // 格式化後的時間
+          } 
+        });
+      }
+
+      // 新增資料
+      await axios.post(`${API_URL}/api/sales/bulk`, {
+        date,
+        location,
+        items: validItems
+      });
+
+      alert("儲存成功！");
+      if (editData) {
+        onSaveSuccess(); // 通知父元件儲存成功，跳轉頁面
+      } else {
+        // 若在新增模式，清空表單
+        setItems(items.map(i => ({...i, p_jin:'', p_tael:'', p_qty:'', r_jin:'', r_tael:'', r_qty:''}))); 
+      }
+
+    } catch (err) {
+      console.error(err);
+      alert("儲存失敗：" + (err.response?.data?.error || err.message));
     }
   };
 
-  const handleCancel = () => {
-    onClearEdit();
-    onSaveSuccess();
-    onCancelEdit();
-  }
-  
-  const getCalc = (item) => {
-    const isW = item.unit_type === 'weight';
-    const p = isW ? (Number(item.p_jin)*16 + Number(item.p_tael)) : Number(item.p_jin);
-    const s = isW ? (Number(item.s_jin)*16 + Number(item.s_tael)) : Number(item.s_jin);
-    const rev = s * item.unit_price; const cost = p * item.cost_price;
-    return { rev: Math.round(rev), dif: Math.round(cost - rev), com: (rev * 0.1).toFixed(1) };
-  };
-
-  const totals = items.reduce((acc, item) => {
-    const { rev, dif, com } = getCalc(item);
-    acc.totalRevenue += rev; acc.totalDiff += dif; acc.totalCommission += Number(com);
-    return acc;
-  }, { totalRevenue: 0, totalDiff: 0, totalCommission: 0 });
-
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center text-white">
-        <h2 className="text-2xl font-bold">📝 每日營業紀錄編輯</h2> 
-        {editData && <span className="bg-orange-500/20 text-orange-400 px-4 py-1 rounded-full animate-pulse">正在編輯歷史紀錄</span>}
+    <div className="bg-neutral-900 p-6 rounded-xl text-neutral-200 shadow-2xl border border-neutral-800">
+      {/* 頂部控制列 */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div>
+          <label className="block text-xs text-neutral-500 mb-1">日期 (Date)</label>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} 
+            className="w-full bg-neutral-800 border border-neutral-700 rounded p-2 text-white" />
+        </div>
+        <div>
+          <label className="block text-xs text-neutral-500 mb-1">地點 (Location)</label>
+          <select value={location} onChange={e => setLocation(e.target.value)}
+            className="w-full bg-neutral-800 border border-neutral-700 rounded p-2 text-white">
+            {locationOptions.map(l => <option key={l.id} value={l.name}>{l.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-neutral-500 mb-1">抽成比例 (Rate)</label>
+          <div className="flex items-center">
+            <input type="number" step="0.01" value={commissionRate} onChange={e => setCommissionRate(parseFloat(e.target.value))}
+              className="w-24 bg-neutral-800 border border-neutral-700 rounded p-2 text-white mr-2 text-right" />
+            <span className="text-neutral-400">= {(commissionRate * 100).toFixed(0)}%</span>
+          </div>
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-4 bg-neutral-800 p-4 rounded-2xl border border-neutral-700">
-        <input type="date" className="bg-neutral-900 border rounded-xl px-4 py-2 text-white outline-none" value={date} onChange={e => setDate(e.target.value)} />
-        <select className="bg-neutral-900 border rounded-xl px-4 py-2 text-white outline-none" value={location} onChange={e => setLocation(e.target.value)}>
-          {locationOptions.map(loc => <option key={loc.id} value={loc.name}>{loc.name}</option>)}
-        </select>
-      </div>
-
-      <div className="overflow-x-auto rounded-2xl border border-neutral-700 shadow-xl bg-neutral-800">
-        <table className="w-full text-left border-collapse">
+      {/* 表格區 */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
           <thead>
-            <tr className="bg-neutral-900/50 text-neutral-400 text-xs uppercase tracking-widest border-b border-neutral-700">
-              <th className="p-4">品名</th>
-              <th className="p-4">零售價</th>
-              <th colSpan="2" className="p-4 text-center bg-sky-500/5 text-sky-400">進貨 (斤兩 / 個)</th>
-              <th colSpan="2" className="p-4 text-center bg-emerald-500/5 text-emerald-400">銷售 (斤兩 / 個)</th>
-              <th className="p-4 text-right">銷售額</th>
-              <th className="p-4 text-right">差額</th>
-              <th className="p-4 text-right text-sky-400">抽成</th>
+            <tr className="bg-neutral-800 text-neutral-400">
+              <th className="p-2 text-left">品項</th>
+              <th className="p-2 w-20">單價</th>
+              <th className="p-2 text-center bg-blue-900/20">出貨數量</th> 
+              <th className="p-2 text-center bg-red-900/20">回收數量</th>
+              <th className="p-2 text-right text-blue-300">出貨</th>
+              <th className="p-2 text-right text-red-300">存貨</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-neutral-700">
-            {items.map((item, index) => {
-              const { rev, dif, com } = getCalc(item); const isW = item.unit_type === 'weight';
+          <tbody className="divide-y divide-neutral-800">
+            {items.map((item, idx) => {
+              const calcs = calculateRow(item);
+              const isWeight = item.unit_type === 'weight' || item.unit_type === '兩';
+
               return (
-                <tr key={index} className="hover:bg-white/5 text-white">
-                  <td className="p-4 font-bold">{item.product_name}</td><td className="p-4 text-neutral-400">${item.unit_price}</td>
-                  {isW ? (
-                    <><td className="p-2"><input type="number" className="w-16 bg-neutral-900 border rounded p-1 text-center" value={item.p_jin} onChange={e => handleUpdate(index,'p_jin',e.target.value)} />斤</td><td className="p-2"><input type="number" className="w-16 bg-neutral-900 border rounded p-1 text-center" value={item.p_tael} onChange={e => handleUpdate(index,'p_tael',e.target.value)} />兩</td></>
-                  ) : (
-                    <td colSpan={2} className="p-2 text-center"><input type="number" className="w-20 bg-neutral-900 border rounded p-1 text-center" value={item.p_jin} onChange={e => handleUpdate(index,'p_jin',e.target.value)} />個</td>
-                  )}
-                  {isW ? (
-                    <><td className="p-2"><input type="number" className="w-16 bg-neutral-900 border rounded p-1 text-center" value={item.s_jin} onChange={e => handleUpdate(index,'s_jin',e.target.value)} />斤</td><td className="p-2"><input type="number" className="w-16 bg-neutral-900 border rounded p-1 text-center" value={item.s_tael} onChange={e => handleUpdate(index,'s_tael',e.target.value)} />兩</td></>
-                  ) : (
-                    <td colSpan={2} className="p-2 text-center"><input type="number" className="w-20 bg-neutral-900 border rounded p-1 text-center" value={item.s_jin} onChange={e => handleUpdate(index,'s_jin',e.target.value)} />個</td>
-                  )}
-                  <td className="p-4 text-right text-yellow-400 font-mono">${rev}</td><td className={`p-4 text-right font-mono ${dif >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>${dif}</td><td className="p-4 text-right text-sky-400 font-mono">${com}</td>
+                <tr key={item.id || idx} className="hover:bg-neutral-800/50">
+                  <td className="p-2 font-bold">{item.product_name}</td>
+                  <td className="p-2 text-neutral-400">{item.price}</td>
+                  
+                  {/* 出貨輸入區 */}
+                  <td className="p-2 bg-blue-900/10">
+                    <div className="flex gap-1 justify-center">
+                      {isWeight ? (
+                        <>
+                          <input placeholder="斤" value={item.p_jin} onChange={e => handleItemChange(idx, 'p_jin', e.target.value)} 
+                            className="w-12 bg-neutral-700 rounded px-1 text-center text-white" />
+                          <input placeholder="兩" value={item.p_tael} onChange={e => handleItemChange(idx, 'p_tael', e.target.value)} 
+                            className="w-12 bg-neutral-700 rounded px-1 text-center text-white" />
+                        </>
+                      ) : (
+                        <input placeholder="個" value={item.p_qty} onChange={e => handleItemChange(idx, 'p_qty', e.target.value)} 
+                          className="w-20 bg-neutral-700 rounded px-1 text-center text-white" />
+                      )}
+                    </div>
+                  </td>
+
+                  {/* 回收輸入區 */}
+                  <td className="p-2 bg-red-900/10">
+                    <div className="flex gap-1 justify-center">
+                      {isWeight ? (
+                        <>
+                          <input placeholder="斤" value={item.r_jin} onChange={e => handleItemChange(idx, 'r_jin', e.target.value)} 
+                            className="w-12 bg-neutral-700 rounded px-1 text-center text-white" />
+                          <input placeholder="兩" value={item.r_tael} onChange={e => handleItemChange(idx, 'r_tael', e.target.value)} 
+                            className="w-12 bg-neutral-700 rounded px-1 text-center text-white" />
+                        </>
+                      ) : (
+                        <input placeholder="個" value={item.r_qty} onChange={e => handleItemChange(idx, 'r_qty', e.target.value)} 
+                          className="w-20 bg-neutral-700 rounded px-1 text-center text-white" />
+                      )}
+                    </div>
+                  </td>
+
+                  <td className="p-2 text-right text-blue-300 font-mono">{calcs.shipVal > 0 ? calcs.shipVal.toLocaleString() : '-'}</td>
+                  <td className="p-2 text-right text-red-300 font-mono">{calcs.returnVal > 0 ? calcs.returnVal.toLocaleString() : '-'}</td>
                 </tr>
               );
             })}
           </tbody>
-          <tfoot className="bg-neutral-900/50 font-bold border-t-2 border-neutral-700 text-white">
+          <tfoot className="bg-neutral-950 font-bold border-t-2 border-neutral-700">
             <tr>
-              <td colSpan="6" className="p-5 text-right text-neutral-400">總結：</td>
-              <td className="p-5 text-right text-yellow-400 text-lg">${totals.totalRevenue.toLocaleString()}</td>
-              <td className={`p-5 text-right text-lg ${totals.totalDiff >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>${totals.totalDiff.toLocaleString()}</td>
-              <td className="p-5 text-right text-sky-400 text-lg">${totals.totalCommission.toFixed(1)}</td>
+              <td colSpan={4} className="p-3 text-right text-neutral-400">總計：</td>
+              <td className="p-3 text-right text-blue-400">{totals.shipVal.toLocaleString()}</td>
+              <td className="p-3 text-right text-red-400">{totals.returnVal.toLocaleString()}</td>
+            </tr>
+            <tr className="bg-neutral-900">
+              <td colSpan={2}></td>
+              <td colSpan={4} className="p-4">
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div className="bg-neutral-800 p-2 rounded">
+                    <div className="text-xs text-neutral-500">應賣 (Net Sales)</div>
+                    <div className="text-xl text-yellow-400 font-mono">${totals.netSales.toLocaleString()}</div>
+                  </div>
+                  <div className="bg-neutral-800 p-2 rounded">
+                    <div className="text-xs text-neutral-500">差額/抽成 (Commission)</div>
+                    <div className="text-xl text-pink-400 font-mono">${Math.round(totals.commission).toLocaleString()}</div>
+                  </div>
+                  <div className="bg-neutral-800 p-2 rounded border border-emerald-900">
+                    <div className="text-xs text-emerald-500">營業額 (Revenue)</div>
+                    <div className="text-2xl text-emerald-400 font-mono font-black">${Math.round(totals.revenue).toLocaleString()}</div>
+                  </div>
+                </div>
+              </td>
             </tr>
           </tfoot>
         </table>
       </div>
 
-      <div className="flex justify-end gap-4 mt-8">
-        <button onClick={handleReset} className="px-6 py-2.5 bg-neutral-800 text-neutral-400 hover:bg-neutral-700 rounded-xl font-bold border border-neutral-700 transition-all">{ editData ? '還原原始數值': '重置表格'}</button>
-        {isEditMode && <button onClick={handleCancel} className="px-6 py-2.5 bg-sky-500 text-neutral-900 rounded-xl font-bold">取消編輯</button>}
-        <button onClick={handleSave} className="px-10 py-2.5 bg-green-500 text-neutral-900 rounded-xl font-bold shadow-lg">儲存紀錄</button>
+      <div className="flex justify-end gap-4 mt-6">
+        <button onClick={handleReset} className="px-6 py-2 bg-neutral-700 hover:bg-neutral-600 rounded text-neutral-300">
+          {editData ? '還原數值' : '重置表格'}
+        </button>
+        {editData && (
+          <button onClick={onClearEdit} className="px-6 py-2 bg-gray-600 rounded text-white">
+            取消編輯
+          </button>
+        )}
+        <button onClick={handleSave} className="px-8 py-2 bg-emerald-600 hover:bg-emerald-500 rounded font-bold text-white shadow-lg transform active:scale-95 transition-all">
+          {editData ? '更新紀錄' : '儲存今日帳務'}
+        </button>
       </div>
     </div>
   );

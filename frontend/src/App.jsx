@@ -10,22 +10,34 @@ function App() {
   const [historyQuery, setHistoryQuery] = useState(null);
   const [isEditMode, setIsEditMode] = useState(false);
 
-  const handleEditRequest = (records, date, location, time) => {
+  const handleEditRequest = (groupData) => {
     setEditData({
-      date: date,
-      location: location,
-      items: records,
-      post_time: time
+      date: groupData.date,
+      location: groupData.location,
+      items: groupData.items,          // 商品列表
+      post_time: groupData.time,       // 顯示用的時間
+      created_at: groupData.created_at // 資料庫原始時間戳記 (刪除舊資料用)
     });
-    setHistoryQuery({ date, location });
-    setView('daily');
+
+    setHistoryQuery({
+      date: groupData.date,
+      location: groupData.location
+    });
     setIsEditMode(true)
+    setView('daily');
   };
 
   const handleSaveSuccess = () => {
-    setEditData(null);
+    setEditData(null)
     setView('history'); // 儲存後自動跳轉
   };
+
+  const handleClearEdit = () => {
+    setEditData(null);
+    setIsEditMode(false)
+    setView('history');
+  };
+
 
   return (
     <div className="min-h-screen bg-neutral-900 text-neutral-100 font-sans">
@@ -41,8 +53,16 @@ function App() {
             <button
               key={item.id}
               onClick={() => {
+                console.log("isEditMode:", isEditMode)
+                if (item.id === view) return;
                 setView(item.id);
-                if (item.id !== 'daily') setEditData(null);
+                if (item.id !== 'daily' && !isEditMode) setEditData(null);
+                if (item.id === 'history' && editData) {
+                  setHistoryQuery({
+                    date: editData.date,
+                    location: editData.location
+                  })
+                }
               }}
               className={`px-6 py-2.5 rounded-xl font-bold transition-all transform active:scale-95 ${
                 view === item.id 
@@ -60,11 +80,11 @@ function App() {
       <main className="max-w-7xl mx-auto p-4 md:p-8 animate-in fade-in duration-500">
         {view === 'daily' && (
           <DailyTable 
+            key={editData ? `edit-${editData.post_time}` : 'new-daily'}
             editData={editData} 
             onSaveSuccess={handleSaveSuccess}
-            onClearEdit={() => setEditData(null)} 
+            onClearEdit={handleClearEdit}
             isEditMode={isEditMode}
-            onCancelEdit={()=>setIsEditMode(false)}
           />
         )}
         {view === 'history' && (

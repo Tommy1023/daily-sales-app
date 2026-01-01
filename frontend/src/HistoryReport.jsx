@@ -2,12 +2,29 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+const formatToMySQLDateTime = (isoString) => {
+  if (!isoString) return null;
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return isoString;
+
+  const pad = (n) => n.toString().padStart(2, '0');
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  const seconds = pad(date.getSeconds());
+
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+};
+
 function HistoryReport({ onEditRequest, initialQuery }) {
   const [query, setQuery] = useState({ 
     date: initialQuery?.date || new Date().toLocaleDateString('en-CA'), 
     location: initialQuery?.location || '' 
   });
-  const [records, setRecords] = useState([]);
+  
+  const [groupedRecords, setGroupedRecords] = useState([]);
   const [locationOptions, setLocationOptions] = useState([]);
 
   useEffect(() => {
@@ -15,200 +32,195 @@ function HistoryReport({ onEditRequest, initialQuery }) {
       try {
         const res = await axios.get(`${API_URL}/api/locations`);
         setLocationOptions(res.data);
-        if (!initialQuery?.location && res.data.length > 0) {
+        
+        if (!initialQuery?.location && !query.location && res.data.length > 0) {
           setQuery(prev => ({ ...prev, location: res.data[0].name }));
         }
-      } catch (err) {
-        console.error("載入地點失敗", err);
-      }
+      } catch (err) { console.error(err); }
     };
     fetchLocations();
+    
+    if (initialQuery?.location) {
+        setQuery(prev => ({
+            ...prev,
+            date: initialQuery.date,
+            location: initialQuery.location
+        }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuery]);
 
   useEffect(() => {
-    if (initialQuery?.location && initialQuery?.date) {
-      handleSearch(); 
-    }
-  }, []); 
+    if (query.date && query.location) handleSearch();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]); 
 
   const handleSearch = async () => {
-    if (!query.location) return; 
+    if (!query.location) return;
     try {
       const res = await axios.get(`${API_URL}/api/sales/report`, { params: query });
-      setRecords(res.data);
+      
+      const groups = {};
+      res.data.forEach(item => {
+        const timeKey = item.precise_time; 
+        if (!groups[timeKey]) {
+          groups[timeKey] = {
+            time: timeKey,
+            created_at: item.created_at,
+            items: [],
+            totalShippedValue: 0,
+            totalReturnValue: 0,
+            totalNetSales: 0,
+            totalCommission: 0,
+            totalRevenue: 0
+          };
+        }
+        groups[timeKey].items.push(item);
+        
+        groups[timeKey].totalShippedValue += item.shipped_value;
+        groups[timeKey].totalReturnValue += item.returned_value;
+        groups[timeKey].totalNetSales += item.net_sales_value;
+        groups[timeKey].totalCommission += item.commission_amount;
+        groups[timeKey].totalRevenue += item.net_revenue;
+      });
+
+      setGroupedRecords(Object.values(groups).sort((a,b) => b.time.localeCompare(a.time)));
     } catch (err) {
       console.error(err);
-      alert("搜尋失敗");
     }
   };
 
-  const handleDeleteBatch = async (preciseTime) => {
-    if (!window.confirm(`確定要刪除這批紀錄嗎？`)) return;
+  const handleDeleteBatch = async (group) => {
+    if (!confirm("確定要刪除這整筆紀錄嗎？此動作無法復原。")) return;
     try {
+      const formattedCreatedAt = formatToMySQLDateTime(group.created_at);
       await axios.delete(`${API_URL}/api/sales/batch`, {
-        params: { 
-          date: query.date, 
-          location: query.location, 
-          post_time: preciseTime 
-        }
+        data: { date: query.date, location: query.location, created_at: formattedCreatedAt}
       });
-      handleSearch();
+      handleSearch(); 
     } catch (err) {
       alert("刪除失敗");
+      console.log("ErrorMsg:", err)
     }
-  };
-
-  // 1. 修改分組邏輯：使用精確時間分組，避免同一分鐘合併
-  const grouped = records.reduce((acc, r) => {
-    // 優先從後端抓取 precise_time，並處理成 HH:mm:ss 格式字串
-    let timeKey = r.precise_time;
-    if (timeKey && typeof timeKey === 'string' && timeKey.includes('T')) {
-      timeKey = timeKey.split('T')[1].substring(0, 8);
-    }
-    
-    if (!timeKey) return acc;
-    if (!acc[timeKey]) acc[timeKey] = [];
-    acc[timeKey].push(r);
-    return acc;
-  }, {});
-
-  const getCalc = (item) => {
-    const rPrice = item.snapshot_retail_price || 0;
-    const cPrice = item.snapshot_cost_price || 0;
-    const pTotal = Number(item.purchase_total_units || 0);
-    const sTotal = Number(item.sale_total_units || 0);
-    const cost = pTotal * cPrice;
-    const revenue = sTotal * rPrice;
-    const diff = cost - revenue;
-    const comm = revenue * 0.1;
-    return { rev: Math.round(revenue), dif: Math.round(diff), com: comm.toFixed(1) };
-  };
-
-  const calculateGroupTotals = (items) => {
-    return items.reduce((acc, item) => {
-      const { rev, dif, com } = getCalc(item);
-      acc.totalRevenue += rev;
-      acc.totalDiff += dif;
-      acc.totalCommission += Number(com);
-      return acc;
-    }, { totalRevenue: 0, totalDiff: 0, totalCommission: 0 });
   };
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-bold text-white">📜 歷史營業紀錄查詢</h2>
-      
-      <div className="flex gap-4 mb-5 items-end">
+    <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 text-neutral-200">
+      <div className="flex flex-wrap gap-4 mb-6 items-end">
         <div>
-          <label className="block text-xs text-neutral-100 px-2 mb-1">日期</label>
+          <label className="block text-xs text-neutral-500 mb-1">日期</label>
           <input 
             type="date" 
-            className="bg-neutral-800 border border-neutral-700 rounded-xl px-3 py-2 text-white outline-none focus:border-sky-500" 
             value={query.date} 
-            onChange={e => setQuery({...query, date: e.target.value})} 
+            onChange={e => setQuery({...query, date: e.target.value})}
+            className="block bg-neutral-800 border border-neutral-700 rounded p-2 text-white" 
           />
         </div>
         <div>
-          <label className="block text-xs text-neutral-100 px-2 mb-1">地點</label>
+          <label className="block text-xs text-neutral-500 mb-1">地點</label>
           <select 
-            className="bg-neutral-800 border border-neutral-700 rounded-xl px-3 py-2 text-white outline-none focus:border-sky-500" 
-            value={query.location} 
+            value={query.location}
             onChange={e => setQuery({...query, location: e.target.value})}
+            className="block bg-neutral-800 border border-neutral-700 rounded p-2 w-32 text-white"
           >
-            {locationOptions.map(loc => <option key={loc.id} value={loc.name}>{loc.name}</option>)}
+            <option value="" disabled>請選擇地點</option>
+            {locationOptions.map(l => <option key={l.id} value={l.name}>{l.name}</option>)}
           </select>
         </div>
-        <button 
-          className="px-10 py-2.5 bg-sky-500 text-neutral-900 hover:bg-sky-400 rounded-xl font-bold shadow-lg shadow-sky-500/20 transition-all transform active:scale-95"
-          onClick={handleSearch}
-        >
-          搜尋報表
-        </button>
+        <div>
+          <button 
+            onClick={handleSearch}
+            className="px-6 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded shadow-lg transition-all"
+          >
+            查詢
+          </button>
+        </div>
       </div>
 
-      <div className="space-y-10">
-        {/* 2. 確保在這裡使用 preciseKey 當作變數名稱，並正確範圍化 */}
-        {Object.keys(grouped).sort((a, b) => b.localeCompare(a)).map((preciseKey) => {
-          const groupItems = grouped[preciseKey];
-          const totals = calculateGroupTotals(groupItems);
-          const displayTime = preciseKey.substring(0, 5); // 顯示 HH:mm
-
-          return (
-            <div key={preciseKey} className="bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden">
-              <div className="p-4 bg-neutral-800 flex justify-between items-center">
-                <div className="flex items-baseline gap-2">
-                    <span className="font-bold text-sky-400">🕒 {displayTime}</span>
+      <div className="space-y-8">
+        {groupedRecords.length === 0 ? (
+          <div className="text-center text-neutral-500 py-10">查無資料</div>
+        ) : (
+          groupedRecords.map((group, gIdx) => (
+            <div key={gIdx} className="bg-neutral-950 rounded-lg overflow-hidden border border-neutral-800">
+              <div className="bg-neutral-800 p-3 flex justify-between items-center">
+                <div className="flex gap-4 items-center">
+                  <span className="text-emerald-400 font-bold text-lg">時間: {group.time}</span>
+                  <span className="text-xs text-neutral-500 bg-neutral-900 px-2 py-1 rounded">
+                    抽成: {(group.items[0]?.commission_rate * 100).toFixed(0)}%
+                  </span>
                 </div>
                 <div className="flex gap-2">
                   <button 
-                    onClick={() => onEditRequest(groupItems, query.date, query.location, preciseKey)} 
-                    className="bg-sky-700 hover:bg-sky-600 text-white px-3 py-1 rounded text-sm"
+                    onClick={() => onEditRequest({
+                      date: query.date, 
+                      location: query.location, 
+                      ...group 
+                    })
+                    }
+                    className="px-3 py-1 bg-blue-900/50 text-blue-200 text-sm rounded hover:bg-blue-800"
                   >
-                    ✏️ 編輯
+                    編輯
                   </button>
                   <button 
-                    onClick={() => handleDeleteBatch(preciseKey)} 
-                    className="bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
+                    onClick={() => handleDeleteBatch(group)}
+                    className="px-3 py-1 bg-red-900/50 text-red-200 text-sm rounded hover:bg-red-800"
                   >
-                    🗑️ 刪除
+                    刪除
                   </button>
                 </div>
               </div>
 
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-neutral-950 text-neutral-400 text-sm">
+              <table className="w-full text-sm">
+                <thead className="bg-neutral-900 text-neutral-500">
                   <tr>
-                    <th className="p-3 border-b border-neutral-800">品名</th>
-                    <th className="p-3 border-b border-neutral-800">零售單價</th>
-                    <th colSpan="2" className="p-3 border-b border-neutral-800 text-center">進貨</th>
-                    <th colSpan="2" className="p-3 border-b border-neutral-800 text-center">銷售</th>
-                    <th className="p-3 border-b border-neutral-800 text-right">銷售金額</th>
-                    <th className="p-3 border-b border-neutral-800 text-right">差額</th>
-                    <th className="p-3 border-b border-neutral-800 text-right">抽成</th>
+                    <th className="p-2 text-left">品項</th>
+                    {/* 🟢 修正 2：新增單價欄位標題 */}
+                    <th className="p-2 text-right">單價</th> 
+                    <th className="p-2 text-right">出貨量</th>
+                    <th className="p-2 text-right">回收量</th>
+                    <th className="p-2 text-right text-blue-300">出貨金額</th>
+                    <th className="p-2 text-right text-red-300">存貨金額</th>
+                    <th className="p-2 text-right">應賣</th>
+                    <th className="p-2 text-right">差額</th>
+                    <th className="p-2 text-right text-emerald-400">營業額</th>
                   </tr>
                 </thead>
-                <tbody className="text-sm">
-                  {groupItems.map((item, index) => {
-                    const { rev, dif, com } = getCalc(item);
-                    const isWeight = item.unit_type === 'weight';
-                    const p = Number(item.purchase_total_units);
-                    const s = Number(item.sale_total_units);
+                <tbody className="divide-y divide-neutral-800">
+                  {group.items.map(item => {
+                    const isWeight = item.unit_type === 'weight' || item.unit_type === '兩';
+                    const formatQty = (val) => isWeight ? `${Math.floor(val/16)}斤${val%16}兩` : `${val}個`;
+                    
                     return (
-                      <tr key={index} className="border-b border-neutral-800 hover:bg-white/5">
-                        <td className="p-3 font-bold">{item.product_name}</td>
-                        <td className="p-3">${item.snapshot_retail_price}</td>
-                        {isWeight ? (
-                          <>
-                            <td className="p-3 text-right">{Math.floor(p / 16)}斤</td>
-                            <td className="p-3 text-left">{p % 16}兩</td>
-                            <td className="p-3 text-right">{Math.floor(s / 16)}斤</td>
-                            <td className="p-3 text-left">{s % 16}兩</td>
-                          </>
-                        ) : (
-                          <>
-                            <td colSpan="2" className="p-3 text-center">{p}個</td>
-                            <td colSpan="2" className="p-3 text-center">{s}個</td>
-                          </>
-                        )}
-                        <td className="p-3 text-right text-yellow-400 font-bold">${rev}</td>
-                        <td className={`p-3 text-right font-bold ${dif >= 0 ? 'text-green-500' : 'text-red-500'}`}>${dif}</td>
-                        <td className="p-3 text-right text-sky-400">${com}</td>
+                      <tr key={item.id} className="hover:bg-neutral-900">
+                        <td className="p-2">{item.product_name}</td>
+                        {/* 🟢 修正 2：顯示單價資料 */}
+                        <td className="p-2 text-right text-neutral-400">${Number(item.snapshot_retail_price).toLocaleString()}</td>
+                        <td className="p-2 text-right text-neutral-400">{formatQty(item.purchase_total_units)}</td>
+                        <td className="p-2 text-right text-neutral-400">{formatQty(item.return_total_units)}</td>
+                        <td className="p-2 text-right text-blue-300/80">${item.shipped_value.toLocaleString()}</td>
+                        <td className="p-2 text-right text-red-300/80">${item.returned_value.toLocaleString()}</td>
+                        <td className="p-2 text-right text-yellow-100/60">${item.net_sales_value.toLocaleString()}</td>
+                        <td className="p-2 text-right text-pink-300/60">${Math.round(item.commission_amount).toLocaleString()}</td>
+                        <td className="p-2 text-right text-emerald-400 font-bold">${Math.round(item.net_revenue).toLocaleString()}</td>
                       </tr>
                     );
                   })}
                 </tbody>
-                <tfoot className="bg-neutral-950 font-bold">
+                <tfoot className="bg-neutral-900 font-bold border-t border-neutral-700">
                   <tr>
-                    <td colSpan="6" className="p-4 text-right">今日總結：</td>
-                    <td className="p-4 text-right text-yellow-400">${totals.totalRevenue.toLocaleString()}</td>
-                    <td className={`p-4 text-right ${totals.totalDiff >= 0 ? 'text-green-500' : 'text-red-500'}`}>${totals.totalDiff.toLocaleString()}</td>
-                    <td className="p-4 text-right text-sky-400">${totals.totalCommission.toFixed(1)}</td>
+                    <td colSpan={4} className="p-3 text-right">總結：</td>
+                    <td className="p-3 text-right text-blue-400">${group.totalShippedValue.toLocaleString()}</td>
+                    <td className="p-3 text-right text-red-400">${group.totalReturnValue.toLocaleString()}</td>
+                    <td className="p-3 text-right text-yellow-400">${group.totalNetSales.toLocaleString()}</td>
+                    <td className="p-3 text-right text-pink-400">${Math.round(group.totalCommission).toLocaleString()}</td>
+                    <td className="p-3 text-right text-emerald-400 text-lg">${Math.round(group.totalRevenue).toLocaleString()}</td>
                   </tr>
                 </tfoot>
               </table>
             </div>
-          );
-        })}
+          ))
+        )}
       </div>
     </div>
   );

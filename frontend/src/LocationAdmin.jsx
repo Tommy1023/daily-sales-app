@@ -13,6 +13,7 @@ function LocationAdmin() {
     } catch (err) { console.error("載入地點失敗", err); }
   };
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchLocations(); }, []);
 
   const handleAdd = async () => {
@@ -21,7 +22,10 @@ function LocationAdmin() {
       await axios.post(`${API_URL}/api/locations`, { name: newName });
       setNewName('');
       fetchLocations();
-    } catch (err) { alert("新增失敗"); }
+    } catch (err) {
+      console.log("ErrorMsg:", err);
+      alert("新增失敗");
+    }
   };
 
   const handleDelete = async (id, name) => {
@@ -29,7 +33,10 @@ function LocationAdmin() {
     try {
       await axios.delete(`${API_URL}/api/locations/${id}`);
       fetchLocations();
-    } catch (err) { alert("刪除失敗"); }
+    } catch (err) {
+      console.log("ErrorMsg:", err);
+      alert("刪除失敗");
+    }
   };
 
   return (
@@ -38,14 +45,14 @@ function LocationAdmin() {
         <span className="text-emerald-500">📍 地點維護管理</span> 
       </h2>
       
-      <div className="bg-neutral-800 p-6 rounded-2xl border border-neutral-700 shadow-xl flex gap-4">
+      <div className="bg-neutral-800 p-3 rounded-2xl border border-neutral-700 shadow-xl flex gap-4">
         <input 
-          className="bg-neutral-900 border border-neutral-700 rounded-xl px-4 py-2 flex-1 outline-none focus:ring-2 focus:ring-emerald-500 text-white"
+          className="bg-neutral-900 border border-neutral-700 rounded-xl px-1 py-2 flex-1 outline-none focus:ring-2 focus:ring-emerald-500 text-white"
           value={newName}
           onChange={e => setNewName(e.target.value)}
           placeholder="例如：淡水市場"
         />
-        <button className="bg-emerald-500 hover:bg-emerald-400 text-neutral-900 font-bold px-8 py-2 rounded-xl transition-all shadow-lg shadow-emerald-500/20 active:scale-95" onClick={handleAdd}>➕ 新增地點</button>
+        <button className="bg-emerald-500 hover:bg-emerald-400 text-neutral-900 font-bold px-3 py-2 rounded-xl transition-all shadow-lg shadow-emerald-500/20 active:scale-95" onClick={handleAdd}>➕ 新增地點</button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
