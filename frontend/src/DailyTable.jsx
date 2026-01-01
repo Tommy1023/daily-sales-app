@@ -19,15 +19,40 @@ const formatToMySQLDateTime = (isoString) => {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 };
 
-// 🟢 修改 1: 接收 isError 參數，控制背景顏色
 const QtyInputGroup = ({ item, idx, type, colorClass, onItemChange, isError }) => {
   const isWeight = item.unit_type === 'weight' || item.unit_type === '兩';
   const prefix = type === 'ship' ? 'p' : 'r';
   
-  // 如果有錯誤，強制使用紅色背景，否則使用傳入的顏色
   const finalColorClass = isError 
-    ? "bg-red-200 border-2 border-red-500 animate-pulse" // 錯誤時：紅色背景 + 邊框 + 呼吸燈效果
+    ? "bg-red-200 border-2 border-red-500 animate-pulse" 
     : colorClass;
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault(); 
+
+      // 1. 抓取所有 input
+      const allInputs = document.querySelectorAll('input[type="number"]');
+      
+      // 🟢 2. 關鍵修正：只保留「可見」的 input
+      // input.offsetParent 在元素被隱藏 (display: none) 時會是 null
+      const visibleInputs = Array.from(allInputs).filter(input => input.offsetParent !== null);
+      
+      // 3. 找出目前這個 input 在「可見清單」中的位置
+      const currentIndex = visibleInputs.indexOf(e.target);
+      
+      // 4. 跳轉邏輯
+      if (currentIndex !== -1 && currentIndex < visibleInputs.length - 1) {
+        const nextInput = visibleInputs[currentIndex + 1];
+        nextInput.focus();
+        // 自動全選方便連續輸入
+        setTimeout(() => nextInput.select(), 0);
+      } else {
+        // 如果是最後一個，就收起鍵盤
+        e.target.blur();
+      }
+    }
+  };
 
   return (
     <div className={`flex gap-2 justify-center items-center w-full rounded-lg p-2 transition-colors duration-300 ${finalColorClass}`}>
@@ -37,6 +62,7 @@ const QtyInputGroup = ({ item, idx, type, colorClass, onItemChange, isError }) =
               <input placeholder="0" type="number" 
                 value={item[`${prefix}_jin`]} 
                 onChange={e => onItemChange(idx, `${prefix}_jin`, e.target.value)} 
+                onKeyDown={handleKeyDown}
                 className={`w-full h-12 border rounded px-1 text-center text-xl text-slate-900 focus:ring-2 outline-none ${isError ? 'border-red-500 bg-red-50 focus:ring-red-400' : 'border-slate-300 bg-white focus:ring-blue-400'}`} />
               <span className="absolute right-1 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">斤</span>
           </div>
@@ -44,6 +70,7 @@ const QtyInputGroup = ({ item, idx, type, colorClass, onItemChange, isError }) =
             <input placeholder="0" type="number" 
               value={item[`${prefix}_tael`]} 
               onChange={e => onItemChange(idx, `${prefix}_tael`, e.target.value)} 
+              onKeyDown={handleKeyDown}
               className={`w-full h-12 border rounded px-1 text-center text-xl text-slate-900 focus:ring-2 outline-none ${isError ? 'border-red-500 bg-red-50 focus:ring-red-400' : 'border-slate-300 bg-white focus:ring-blue-400'}`} />
               <span className="absolute right-1 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">兩</span>
           </div>
@@ -52,6 +79,7 @@ const QtyInputGroup = ({ item, idx, type, colorClass, onItemChange, isError }) =
         <input placeholder="個" type="number" 
           value={item[`${prefix}_qty`]} 
           onChange={e => onItemChange(idx, `${prefix}_qty`, e.target.value)} 
+          onKeyDown={handleKeyDown}
           className={`w-full h-12 border rounded px-2 text-center text-xl text-slate-900 focus:ring-2 outline-none ${isError ? 'border-red-500 bg-red-50 focus:ring-red-400' : 'border-slate-300 bg-white focus:ring-blue-400'}`} />
       )}
     </div>
