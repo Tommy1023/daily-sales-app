@@ -3,11 +3,10 @@ import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-// 🛠️ 輔助函式：將 ISO 時間轉為 MySQL 格式 (YYYY-MM-DD HH:mm:ss)
 const formatToMySQLDateTime = (isoString) => {
   if (!isoString) return null;
   const date = new Date(isoString);
-  if (isNaN(date.getTime())) return isoString; // 若轉換失敗則回傳原值
+  if (isNaN(date.getTime())) return isoString;
 
   const pad = (n) => n.toString().padStart(2, '0');
   const year = date.getFullYear();
@@ -22,10 +21,8 @@ const formatToMySQLDateTime = (isoString) => {
 
 function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
   
-  // 1. 初始化狀態邏輯
   const getInitialState = () => {
     if (editData && editData.items) {
-      // 編輯模式
       return {
         date: editData.date ? editData.date.split('T')[0] : new Date().toLocaleDateString('en-CA'),
         location: editData.location || '',
@@ -35,7 +32,6 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
           return {
             ...item,
             price: item.snapshot_retail_price,
-            // 編輯時還原資料，若無值則預設為 '' (空字串) 以便顯示 placeholder
             p_jin: isWeight ? Math.floor(item.purchase_total_units / 16) : '',
             p_tael: isWeight ? item.purchase_total_units % 16 : '',
             p_qty: !isWeight ? item.purchase_total_units : '',
@@ -47,7 +43,6 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
       };
     }
     
-    // 新增模式
     return {
       date: new Date().toLocaleDateString('en-CA'),
       location: '',
@@ -64,9 +59,8 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
   const [items, setItems] = useState(initialState.items);
   
   const [locationOptions, setLocationOptions] = useState([]);
-  const originalItems = useRef(editData); // 紀錄原始資料供刪除用
+  const originalItems = useRef(editData);
 
-  // 2. 載入地點與商品 (僅在組件掛載時執行一次)
   useEffect(() => {
     const init = async () => {
       try {
@@ -77,12 +71,10 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
         
         setLocationOptions(locRes.data);
         
-        // 若為新增模式且無地點，預設選第一個
         if (!editData && locRes.data.length > 0 && !location) {
             setLocation(locRes.data[0].name);
         }
 
-        // 若為新增模式，載入商品列表建立空表格
         if (!editData && items.length === 0) {
           const defaultItems = prodRes.data.map(p => ({
             id: p.id,
@@ -100,34 +92,28 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 3. 輸入處理 (含防呆)
   const handleItemChange = (index, field, value) => {
-    // 防呆：兩的數值需小於 16
     if ((field === 'p_tael' || field === 'r_tael') && value !== '') {
       if (Number(value) >= 16) {
         alert('兩的數值必須小於 16');
-        return; // 阻止更新
+        return;
       }
     }
-
     const newItems = [...items];
     newItems[index][field] = value;
     setItems(newItems);
   };
 
-  // 重置表格功能
   const handleReset = () => {
     if (editData) {
-      // 情況 A：編輯模式 -> 還原到原始資料 (Undo)
       if (confirm('確定要還原至原始紀錄嗎？目前的修改將會消失。')) {
-        const originalState = getInitialState(); // 重新呼叫初始化函式抓取 editData
+        const originalState = getInitialState();
         setItems(originalState.items);
         setCommissionRate(originalState.rate);
         setDate(originalState.date);
         setLocation(originalState.location);
       }
     } else {
-      // 情況 B：新增模式 -> 清空所有欄位 (Clear)
       if (confirm('確定要清空所有輸入嗎？')) {
         const resetItems = items.map(item => ({
           ...item,
@@ -138,17 +124,15 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
       }
     }
   };
-  // 即時計算邏輯
+
   const calculateRow = (item) => {
     const isWeight = item.unit_type === 'weight' || item.unit_type === '兩';
     const price = parseFloat(item.price) || 0;
     
-    // 計算出貨量
     const shipQty = isWeight 
       ? (parseFloat(item.p_jin) || 0) * 16 + (parseFloat(item.p_tael) || 0)
       : (parseFloat(item.p_qty) || 0);
       
-    // 計算回收量
     const returnQty = isWeight
       ? (parseFloat(item.r_jin) || 0) * 16 + (parseFloat(item.r_tael) || 0)
       : (parseFloat(item.r_qty) || 0);
@@ -162,7 +146,6 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
     return { shipVal, returnVal, netSales, commission, revenue };
   };
 
-  // 總計
   const totals = items.reduce((acc, item) => {
     const row = calculateRow(item);
     return {
@@ -174,15 +157,12 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
     };
   }, { shipVal: 0, returnVal: 0, netSales: 0, commission: 0, revenue: 0 });
 
-  // 4. 儲存功能 (關鍵修正)
   const handleSave = async () => {
     if (!date || !location) return alert("請選擇日期與地點");
     
-    // 準備要送出的資料：將空值轉為 0
     const validItems = items.map(i => ({ 
       ...i, 
       commission_rate: commissionRate,
-      // 將空字串轉為 0，避免後端收到 NaN 或 null
       p_jin: i.p_jin || 0,
       p_tael: i.p_tael || 0,
       p_qty: i.p_qty || 0,
@@ -194,26 +174,21 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
     if (validItems.length === 0) return alert("請至少輸入一項數據");
 
     try {
-      // 若是編輯模式，先執行「刪除舊資料」
       if (editData) {
-        // 🔥 關鍵修正：確保 created_at 格式為 MySQL 可接受的字串
         const rawCreatedAt = originalItems.current.created_at || (originalItems.current.items[0] && originalItems.current.items[0].created_at);
         const formattedCreatedAt = formatToMySQLDateTime(rawCreatedAt);
 
-        if (!formattedCreatedAt) {
-          throw new Error("找不到原始資料的時間戳記，無法更新");
-        }
+        if (!formattedCreatedAt) throw new Error("找不到原始資料的時間戳記，無法更新");
 
         await axios.delete(`${API_URL}/api/sales/batch`, { 
           data: { 
-            date: originalItems.current.date, // 舊的日期
-            location: originalItems.current.location, // 舊的地點
-            created_at: formattedCreatedAt // 格式化後的時間
+            date: originalItems.current.date,
+            location: originalItems.current.location,
+            created_at: formattedCreatedAt 
           } 
         });
       }
 
-      // 新增資料
       await axios.post(`${API_URL}/api/sales/bulk`, {
         date,
         location,
@@ -222,9 +197,8 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
 
       alert("儲存成功！");
       if (editData) {
-        onSaveSuccess(); // 通知父元件儲存成功，跳轉頁面
+        onSaveSuccess();
       } else {
-        // 若在新增模式，清空表單
         setItems(items.map(i => ({...i, p_jin:'', p_tael:'', p_qty:'', r_jin:'', r_tael:'', r_qty:''}))); 
       }
 
@@ -234,116 +208,168 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
     }
   };
 
+  const QtyInputGroup = ({ item, idx, type, colorClass }) => {
+    const isWeight = item.unit_type === 'weight' || item.unit_type === '兩';
+    const prefix = type === 'ship' ? 'p' : 'r';
+    
+    return (
+      <div className={`flex gap-2 justify-center items-center w-full rounded-lg p-2 ${colorClass}`}>
+        {isWeight ? (
+          <>
+            <div className="relative flex-1">
+                <input placeholder="0" type="number" 
+                  value={item[`${prefix}_jin`]} 
+                  onChange={e => handleItemChange(idx, `${prefix}_jin`, e.target.value)} 
+                  className="w-full h-12 border border-slate-300 rounded px-1 text-center text-xl text-slate-900 bg-white focus:ring-2 focus:ring-blue-400 outline-none" />
+                <span className="absolute right-1 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">斤</span>
+            </div>
+            <div className="relative flex-1">
+              <input placeholder="0" type="number" 
+                value={item[`${prefix}_tael`]} 
+                onChange={e => handleItemChange(idx, `${prefix}_tael`, e.target.value)} 
+                className="w-full h-12 border border-slate-300 rounded px-1 text-center text-xl text-slate-900 bg-white focus:ring-2 focus:ring-blue-400 outline-none" />
+                <span className="absolute right-1 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">兩</span>
+            </div>
+          </>
+        ) : (
+          <input placeholder="個" type="number" 
+            value={item[`${prefix}_qty`]} 
+            onChange={e => handleItemChange(idx, `${prefix}_qty`, e.target.value)} 
+            className="w-full h-12 border border-slate-300 rounded px-2 text-center text-xl text-slate-900 bg-white focus:ring-2 focus:ring-blue-400 outline-none" />
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-neutral-900 p-6 rounded-xl text-neutral-200 shadow-2xl border border-neutral-800">
-      {/* 頂部控制列 */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+    <div className="bg-white p-4 md:p-6 rounded-2xl shadow-xl border border-slate-200 text-slate-900">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div>
-          <label className="block text-xs text-neutral-500 mb-1">日期 (Date)</label>
+          <label className="block text-lg font-bold text-slate-700 mb-2">日期 (Date)</label>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} 
-            className="w-full bg-neutral-800 border border-neutral-700 rounded p-2 text-white" />
+            className="w-full h-12 bg-white border-2 border-slate-300 rounded-lg px-3 text-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all" />
         </div>
         <div>
-          <label className="block text-xs text-neutral-500 mb-1">地點 (Location)</label>
+          <label className="block text-lg font-bold text-slate-700 mb-2">地點 (Location)</label>
           <select value={location} onChange={e => setLocation(e.target.value)}
-            className="w-full bg-neutral-800 border border-neutral-700 rounded p-2 text-white">
+            className="w-full h-12 bg-white border-2 border-slate-300 rounded-lg px-3 text-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all">
             {locationOptions.map(l => <option key={l.id} value={l.name}>{l.name}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-xs text-neutral-500 mb-1">抽成比例 (Rate)</label>
-          <div className="flex items-center">
+          <label className="block text-lg font-bold text-slate-700 mb-2">抽成比例 (Rate)</label>
+          <div className="flex items-center gap-2">
             <input type="number" step="0.01" value={commissionRate} onChange={e => setCommissionRate(parseFloat(e.target.value))}
-              className="w-24 bg-neutral-800 border border-neutral-700 rounded p-2 text-white mr-2 text-right" />
-            <span className="text-neutral-400">= {(commissionRate * 100).toFixed(0)}%</span>
+              className="w-28 h-12 bg-white border-2 border-slate-300 rounded-lg px-3 text-xl text-right focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none" />
+            <span className="text-xl font-bold text-slate-500">= {(commissionRate * 100).toFixed(0)}%</span>
           </div>
         </div>
       </div>
 
-      {/* 表格區 */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-neutral-800 text-neutral-400">
-              <th className="p-2 text-left">品項</th>
-              <th className="p-2 w-20">單價</th>
-              <th className="p-2 text-center bg-blue-900/20">出貨數量</th> 
-              <th className="p-2 text-center bg-red-900/20">回收數量</th>
-              <th className="p-2 text-right text-blue-300">出貨</th>
-              <th className="p-2 text-right text-red-300">存貨</th>
+      {/* 🟢 修改 1: 移除了 table-fixed，恢復手機版彈性寬度 */}
+      <div className="overflow-x-auto border rounded-xl border-slate-200 mb-6">
+        <table className="w-full text-base md:text-lg">
+          <thead className="bg-orange-500 text-slate-600 border-b-2 border-slate-200">
+            <tr>
+              {/* 🟢 修改 2: 電腦版所有標題都改為 text-center 置中 */}
+              <th className="p-4 text-left md:text-center whitespace-nowrap md:w-1/6">品項</th>
+              
+              <th className="hidden md:table-cell p-4 text-center md:w-1/6">單價</th>
+              <th className="hidden md:table-cell p-4 text-center md:w-1/6">出貨數量</th> 
+              <th className="hidden md:table-cell p-4 text-center md:w-1/6">回收數量</th>
+              <th className="hidden md:table-cell p-4 text-center md:w-1/6">出貨金額</th>
+              <th className="hidden md:table-cell p-4 text-center md:w-1/6">回收金額</th>
+
+              <th className="md:hidden p-4 text-center">出貨 / 回收</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-neutral-800">
+          <tbody className="divide-y divide-slate-200">
             {items.map((item, idx) => {
               const calcs = calculateRow(item);
-              const isWeight = item.unit_type === 'weight' || item.unit_type === '兩';
 
               return (
-                <tr key={item.id || idx} className="hover:bg-neutral-800/50">
-                  <td className="p-2 font-bold">{item.product_name}</td>
-                  <td className="p-2 text-neutral-400">{item.price}</td>
+                <tr key={item.id || idx} className="hover:bg-yellow-50 even:bg-slate-50 transition-colors">
+                  {/* 🟢 修改 3: 電腦版內容增加 md:text-center 和 md:align-middle */}
+                  <td className="p-4 align-top md:align-middle md:text-center">
+                    <div className="font-bold text-lg md:text-xl text-slate-800">{item.product_name}</div>
+                    
+                    <div className="md:hidden text-slate-500 text-sm mt-1 font-mono">
+                      單價: ${item.price}
+                    </div>
+                  </td>
                   
-                  {/* 出貨輸入區 */}
-                  <td className="p-2 bg-blue-900/10">
-                    <div className="flex gap-1 justify-center">
-                      {isWeight ? (
-                        <>
-                          <input placeholder="斤" value={item.p_jin} onChange={e => handleItemChange(idx, 'p_jin', e.target.value)} 
-                            className="w-12 bg-neutral-700 rounded px-1 text-center text-white" />
-                          <input placeholder="兩" value={item.p_tael} onChange={e => handleItemChange(idx, 'p_tael', e.target.value)} 
-                            className="w-12 bg-neutral-700 rounded px-1 text-center text-white" />
-                        </>
-                      ) : (
-                        <input placeholder="個" value={item.p_qty} onChange={e => handleItemChange(idx, 'p_qty', e.target.value)} 
-                          className="w-20 bg-neutral-700 rounded px-1 text-center text-white" />
-                      )}
+                  <td className="hidden md:table-cell p-4 text-center text-slate-600 font-mono">${item.price}</td>
+                  <td className="hidden md:table-cell p-3">
+                    <QtyInputGroup item={item} idx={idx} type="ship" colorClass="bg-blue-50/50" />
+                  </td>
+                  <td className="hidden md:table-cell p-3">
+                    <QtyInputGroup item={item} idx={idx} type="return" colorClass="bg-red-50/50" />
+                  </td>
+                  <td className="hidden md:table-cell p-4 text-center text-blue-600 font-mono font-bold">{calcs.shipVal > 0 ? calcs.shipVal.toLocaleString() : '-'}</td>
+                  <td className="hidden md:table-cell p-4 text-center text-red-500 font-mono font-bold">{calcs.returnVal > 0 ? calcs.returnVal.toLocaleString() : '-'}</td>
+
+                  <td className="md:hidden p-2">
+                    <div className="flex flex-col gap-2">
+                      <div className="relative">
+                        <span className="absolute left-1 top-0 text-[20px] text-blue-600 font-bold z-10 px-1 bg-blue-50 rounded">出貨</span>
+                        <QtyInputGroup item={item} idx={idx} type="ship" colorClass="bg-blue-50 border border-blue-200 pt-5" />
+                      </div>
+                      
+                      <div className="relative">
+                         <span className="absolute left-1 top-0 text-[20px] text-red-600 font-bold z-10 px-1 bg-red-50 rounded">回收</span>
+                        <QtyInputGroup item={item} idx={idx} type="return" colorClass="bg-red-50 border border-red-200 pt-5" />
+                      </div>
                     </div>
                   </td>
 
-                  {/* 回收輸入區 */}
-                  <td className="p-2 bg-red-900/10">
-                    <div className="flex gap-1 justify-center">
-                      {isWeight ? (
-                        <>
-                          <input placeholder="斤" value={item.r_jin} onChange={e => handleItemChange(idx, 'r_jin', e.target.value)} 
-                            className="w-12 bg-neutral-700 rounded px-1 text-center text-white" />
-                          <input placeholder="兩" value={item.r_tael} onChange={e => handleItemChange(idx, 'r_tael', e.target.value)} 
-                            className="w-12 bg-neutral-700 rounded px-1 text-center text-white" />
-                        </>
-                      ) : (
-                        <input placeholder="個" value={item.r_qty} onChange={e => handleItemChange(idx, 'r_qty', e.target.value)} 
-                          className="w-20 bg-neutral-700 rounded px-1 text-center text-white" />
-                      )}
-                    </div>
-                  </td>
-
-                  <td className="p-2 text-right text-blue-300 font-mono">{calcs.shipVal > 0 ? calcs.shipVal.toLocaleString() : '-'}</td>
-                  <td className="p-2 text-right text-red-300 font-mono">{calcs.returnVal > 0 ? calcs.returnVal.toLocaleString() : '-'}</td>
                 </tr>
               );
             })}
           </tbody>
-          <tfoot className="bg-neutral-950 font-bold border-t-2 border-neutral-700">
+          
+          <tfoot className="bg-slate-100 font-bold border-t-4 border-slate-300">
             <tr>
-              <td colSpan={4} className="p-3 text-right text-neutral-400">總計：</td>
-              <td className="p-3 text-right text-blue-400">{totals.shipVal.toLocaleString()}</td>
-              <td className="p-3 text-right text-red-400">{totals.returnVal.toLocaleString()}</td>
+              <td colSpan={2} className="md:hidden p-4 text-right text-slate-500 text-lg">總計詳情請見下方</td>
+              <td colSpan={4} className="hidden md:table-cell p-4 text-right text-slate-500 text-lg">出/回 總計：</td>
+              
+              <td className="hidden md:table-cell p-4 text-center text-blue-600 text-xl">${totals.shipVal.toLocaleString()}</td>
+              <td className="hidden md:table-cell p-4 text-center text-red-500 text-xl">${totals.returnVal.toLocaleString()}</td>
             </tr>
-            <tr className="bg-neutral-900">
-              <td colSpan={2}></td>
-              <td colSpan={4} className="p-4">
+            <tr className="bg-slate-800 text-white">
+              
+              <td colSpan={2} className="md:hidden p-4">
+                 <div className="flex flex-col gap-4">
+                    <div className="bg-emerald-800 p-2 rounded-xl border-4 border-emerald-500 text-center shadow-lg">
+                      <div className="text-sm text-emerald-200 mb-1">營業額 (Revenue)</div>
+                      <div className="text-2xl text-white font-mono font-black">${Math.round(totals.revenue).toLocaleString()}</div>
+                    </div>
+
+                    <div className="bg-slate-700 p-2 rounded-xl text-center border border-slate-600">
+                      <div className="text-sm text-slate-300 mb-1">應賣 (Net Sales)</div>
+                      <div className="text-2xl text-yellow-400 font-mono tracking-wider">${totals.netSales.toLocaleString()}</div>
+                    </div>
+
+                    <div className="bg-slate-700 p-2 rounded-xl text-center border border-slate-600">
+                      <div className="text-sm text-slate-300 mb-1">差額/抽成 (Commission)</div>
+                      <div className="text-2xl text-pink-300 font-mono tracking-wider">${Math.round(totals.commission).toLocaleString()}</div>
+                    </div>
+                 </div>
+              </td>
+
+              <td colSpan={2} className="hidden md:table-cell"></td>
+              <td colSpan={4} className="hidden md:table-cell p-6">
                 <div className="grid grid-cols-3 gap-4 text-center">
-                  <div className="bg-neutral-800 p-2 rounded">
-                    <div className="text-xs text-neutral-500">應賣 (Net Sales)</div>
-                    <div className="text-xl text-yellow-400 font-mono">${totals.netSales.toLocaleString()}</div>
+                  <div className="bg-slate-700 p-4 rounded-xl">
+                    <div className="text-sm text-slate-300 mb-1">應賣 (Net Sales)</div>
+                    <div className="text-2xl text-yellow-400 font-mono tracking-wider">${totals.netSales.toLocaleString()}</div>
                   </div>
-                  <div className="bg-neutral-800 p-2 rounded">
-                    <div className="text-xs text-neutral-500">差額/抽成 (Commission)</div>
-                    <div className="text-xl text-pink-400 font-mono">${Math.round(totals.commission).toLocaleString()}</div>
+                  <div className="bg-slate-700 p-4 rounded-xl">
+                    <div className="text-sm text-slate-300 mb-1">差額/抽成 (Commission)</div>
+                    <div className="text-2xl text-pink-300 font-mono tracking-wider">${Math.round(totals.commission).toLocaleString()}</div>
                   </div>
-                  <div className="bg-neutral-800 p-2 rounded border border-emerald-900">
-                    <div className="text-xs text-emerald-500">營業額 (Revenue)</div>
-                    <div className="text-2xl text-emerald-400 font-mono font-black">${Math.round(totals.revenue).toLocaleString()}</div>
+                  <div className="bg-emerald-800 p-4 rounded-xl border-2 border-emerald-500 shadow-lg transform scale-110">
+                    <div className="text-sm text-emerald-200 mb-1">營業額 (Revenue)</div>
+                    <div className="text-4xl text-white font-mono font-black">${Math.round(totals.revenue).toLocaleString()}</div>
                   </div>
                 </div>
               </td>
@@ -352,16 +378,16 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
         </table>
       </div>
 
-      <div className="flex justify-end gap-4 mt-6">
-        <button onClick={handleReset} className="px-6 py-2 bg-neutral-700 hover:bg-neutral-600 rounded text-neutral-300">
+      <div className="flex flex-col md:flex-row justify-end gap-4 mt-8">
+        <button onClick={handleReset} className="px-8 py-4 bg-slate-200 hover:bg-slate-300 rounded-xl text-slate-700 font-bold text-lg">
           {editData ? '還原數值' : '重置表格'}
         </button>
         {editData && (
-          <button onClick={onClearEdit} className="px-6 py-2 bg-gray-600 rounded text-white">
+          <button onClick={onClearEdit} className="px-8 py-4 bg-slate-500 hover:bg-slate-400 rounded-xl text-white font-bold text-lg">
             取消編輯
           </button>
         )}
-        <button onClick={handleSave} className="px-8 py-2 bg-emerald-600 hover:bg-emerald-500 rounded font-bold text-white shadow-lg transform active:scale-95 transition-all">
+        <button onClick={handleSave} className="px-10 py-4 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold text-white text-xl shadow-lg shadow-emerald-600/30 transform active:scale-95 transition-all w-full md:w-auto">
           {editData ? '更新紀錄' : '儲存今日帳務'}
         </button>
       </div>

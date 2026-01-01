@@ -14,9 +14,9 @@ function App() {
     setEditData({
       date: groupData.date,
       location: groupData.location,
-      items: groupData.items,          // 商品列表
-      post_time: groupData.time,       // 顯示用的時間
-      created_at: groupData.created_at // 資料庫原始時間戳記 (刪除舊資料用)
+      items: groupData.items,
+      post_time: groupData.time,
+      created_at: groupData.created_at
     });
 
     setHistoryQuery({
@@ -29,7 +29,7 @@ function App() {
 
   const handleSaveSuccess = () => {
     setEditData(null)
-    setView('history'); // 儲存後自動跳轉
+    setView('history');
   };
 
   const handleClearEdit = () => {
@@ -40,51 +40,51 @@ function App() {
 
 
   return (
-    <div className="min-h-screen bg-neutral-900 text-neutral-100 font-sans">
-      {/* 導覽列 */}
-      <nav className="bg-neutral-800 border-b border-neutral-700 p-4 sticky top-0 z-50 shadow-md">
-        <div className="max-w-7xl mx-auto flex flex-wrap gap-3">
-          {[
-            { id: 'daily', label: '📝 填寫日報' },
-            { id: 'history', label: '📜 歷史查詢' },
-            { id: 'admin', label: '⚙️ 商品維護' },
-            { id: 'loc_admin', label: '📍 地點維護' }
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => {
-                console.log("isEditMode:", isEditMode)
-                if (item.id === view) return;
-                setView(item.id);
-                if (item.id !== 'daily' && !isEditMode) setEditData(null);
-                if (item.id === 'history' && editData) {
-                  setHistoryQuery({
-                    date: editData.date,
-                    location: editData.location
-                  })
-                }
-              }}
-              className={`px-6 py-2.5 rounded-xl font-bold transition-all transform active:scale-95 ${
-                view === item.id 
-                ? 'bg-sky-500 text-neutral-900 shadow-lg shadow-sky-500/20' 
-                : 'bg-neutral-700 text-neutral-300 hover:bg-neutral-600 hover:text-white'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      {/* 導覽列：手機版 2x2 Grid，電腦版 Flex */}
+      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-md">
+        <div className="max-w-7xl mx-auto p-2 md:p-4">
+          {/* 🟢 修改重點：grid grid-cols-2 (手機) vs md:flex (電腦) */}
+          <div className="grid grid-cols-2 gap-2 md:flex md:flex-nowrap md:gap-4 md:overflow-x-auto pb-1">
+            {[
+              { id: 'daily', label: '📝 填寫日報' },
+              { id: 'history', label: '📜 歷史查詢' },
+              { id: 'admin', label: '⚙️ 商品維護' },
+              { id: 'loc_admin', label: '📍 地點維護' }
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  if (item.id === view) return;
+                  setView(item.id);
+                  if (item.id !== 'daily' && !isEditMode) setEditData(null);
+                  if (item.id === 'history' && editData) {
+                    setHistoryQuery({
+                      date: editData.date,
+                      location: editData.location
+                    })
+                  }
+                }}
+                className={`flex-shrink-0 px-4 py-3 md:px-6 md:py-3 rounded-lg font-bold text-lg transition-all ${
+                  view === item.id 
+                  ? 'bg-orange-500 text-slate-600 shadow-lg ring-2 ring-blue-300' 
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900 border border-slate-200'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
       </nav>
 
-      {/* 內容區域 */}
-      <main className="max-w-7xl mx-auto p-4 md:p-8 animate-in fade-in duration-500">
+      <main className="max-w-7xl mx-auto p-4 md:p-8 animate-in fade-in duration-500 pb-20">
         {view === 'daily' && (
           <DailyTable 
             key={editData ? `edit-${editData.post_time}` : 'new-daily'}
             editData={editData} 
             onSaveSuccess={handleSaveSuccess}
             onClearEdit={handleClearEdit}
-            isEditMode={isEditMode}
           />
         )}
         {view === 'history' && (
