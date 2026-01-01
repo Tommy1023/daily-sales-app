@@ -19,6 +19,45 @@ const formatToMySQLDateTime = (isoString) => {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 };
 
+// 🟢 修改 1: 接收 isError 參數，控制背景顏色
+const QtyInputGroup = ({ item, idx, type, colorClass, onItemChange, isError }) => {
+  const isWeight = item.unit_type === 'weight' || item.unit_type === '兩';
+  const prefix = type === 'ship' ? 'p' : 'r';
+  
+  // 如果有錯誤，強制使用紅色背景，否則使用傳入的顏色
+  const finalColorClass = isError 
+    ? "bg-red-200 border-2 border-red-500 animate-pulse" // 錯誤時：紅色背景 + 邊框 + 呼吸燈效果
+    : colorClass;
+
+  return (
+    <div className={`flex gap-2 justify-center items-center w-full rounded-lg p-2 transition-colors duration-300 ${finalColorClass}`}>
+      {isWeight ? (
+        <>
+          <div className="relative flex-1">
+              <input placeholder="0" type="number" 
+                value={item[`${prefix}_jin`]} 
+                onChange={e => onItemChange(idx, `${prefix}_jin`, e.target.value)} 
+                className={`w-full h-12 border rounded px-1 text-center text-xl text-slate-900 focus:ring-2 outline-none ${isError ? 'border-red-500 bg-red-50 focus:ring-red-400' : 'border-slate-300 bg-white focus:ring-blue-400'}`} />
+              <span className="absolute right-1 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">斤</span>
+          </div>
+          <div className="relative flex-1">
+            <input placeholder="0" type="number" 
+              value={item[`${prefix}_tael`]} 
+              onChange={e => onItemChange(idx, `${prefix}_tael`, e.target.value)} 
+              className={`w-full h-12 border rounded px-1 text-center text-xl text-slate-900 focus:ring-2 outline-none ${isError ? 'border-red-500 bg-red-50 focus:ring-red-400' : 'border-slate-300 bg-white focus:ring-blue-400'}`} />
+              <span className="absolute right-1 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">兩</span>
+          </div>
+        </>
+      ) : (
+        <input placeholder="個" type="number" 
+          value={item[`${prefix}_qty`]} 
+          onChange={e => onItemChange(idx, `${prefix}_qty`, e.target.value)} 
+          className={`w-full h-12 border rounded px-2 text-center text-xl text-slate-900 focus:ring-2 outline-none ${isError ? 'border-red-500 bg-red-50 focus:ring-red-400' : 'border-slate-300 bg-white focus:ring-blue-400'}`} />
+      )}
+    </div>
+  );
+}
+
 function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
   
   const getInitialState = () => {
@@ -143,7 +182,8 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
     const commission = netSales * commissionRate;
     const revenue = netSales - commission;
 
-    return { shipVal, returnVal, netSales, commission, revenue };
+    // 回傳值多加了 qty 資訊供判斷
+    return { shipVal, returnVal, netSales, commission, revenue, shipQty, returnQty };
   };
 
   const totals = items.reduce((acc, item) => {
@@ -160,6 +200,17 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
   const handleSave = async () => {
     if (!date || !location) return alert("請選擇日期與地點");
     
+    // 儲存前做最終防守：檢查是否有任何一個項目的回收大於出貨
+    for (const item of items) {
+      const rowData = calculateRow(item); // 這裡會拿到換算好的 shipQty 和 returnQty
+      
+      // 只有當有輸入數值且回收大於出貨時才報錯
+      if (rowData.returnQty > rowData.shipQty) {
+        alert(`錯誤：【${item.product_name}】的回收數量 (${rowData.returnQty}) 不能大於出貨數量 (${rowData.shipQty})！`);
+        return; // 中斷儲存
+      }
+    }
+
     const validItems = items.map(i => ({ 
       ...i, 
       commission_rate: commissionRate,
@@ -208,39 +259,6 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
     }
   };
 
-  const QtyInputGroup = ({ item, idx, type, colorClass }) => {
-    const isWeight = item.unit_type === 'weight' || item.unit_type === '兩';
-    const prefix = type === 'ship' ? 'p' : 'r';
-    
-    return (
-      <div className={`flex gap-2 justify-center items-center w-full rounded-lg p-2 ${colorClass}`}>
-        {isWeight ? (
-          <>
-            <div className="relative flex-1">
-                <input placeholder="0" type="number" 
-                  value={item[`${prefix}_jin`]} 
-                  onChange={e => handleItemChange(idx, `${prefix}_jin`, e.target.value)} 
-                  className="w-full h-12 border border-slate-300 rounded px-1 text-center text-xl text-slate-900 bg-white focus:ring-2 focus:ring-blue-400 outline-none" />
-                <span className="absolute right-1 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">斤</span>
-            </div>
-            <div className="relative flex-1">
-              <input placeholder="0" type="number" 
-                value={item[`${prefix}_tael`]} 
-                onChange={e => handleItemChange(idx, `${prefix}_tael`, e.target.value)} 
-                className="w-full h-12 border border-slate-300 rounded px-1 text-center text-xl text-slate-900 bg-white focus:ring-2 focus:ring-blue-400 outline-none" />
-                <span className="absolute right-1 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">兩</span>
-            </div>
-          </>
-        ) : (
-          <input placeholder="個" type="number" 
-            value={item[`${prefix}_qty`]} 
-            onChange={e => handleItemChange(idx, `${prefix}_qty`, e.target.value)} 
-            className="w-full h-12 border border-slate-300 rounded px-2 text-center text-xl text-slate-900 bg-white focus:ring-2 focus:ring-blue-400 outline-none" />
-        )}
-      </div>
-    );
-  }
-
   return (
     <div className="bg-white p-4 md:p-6 rounded-2xl shadow-xl border border-slate-200 text-slate-900">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -266,12 +284,10 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
         </div>
       </div>
 
-      {/* 🟢 修改 1: 移除了 table-fixed，恢復手機版彈性寬度 */}
       <div className="overflow-x-auto border rounded-xl border-slate-200 mb-6">
         <table className="w-full text-base md:text-lg">
           <thead className="bg-orange-500 text-slate-600 border-b-2 border-slate-200">
             <tr>
-              {/* 🟢 修改 2: 電腦版所有標題都改為 text-center 置中 */}
               <th className="p-4 text-left md:text-center whitespace-nowrap md:w-1/6">品項</th>
               
               <th className="hidden md:table-cell p-4 text-center md:w-1/6">單價</th>
@@ -286,10 +302,13 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
           <tbody className="divide-y divide-slate-200">
             {items.map((item, idx) => {
               const calcs = calculateRow(item);
+              
+              // 🟢 修改 2: 即時判斷是否有錯誤 (回收 > 出貨)
+              // 只要回收大於出貨，isReturnError 就會是 true
+              const isReturnError = calcs.returnQty > calcs.shipQty;
 
               return (
                 <tr key={item.id || idx} className="hover:bg-yellow-50 even:bg-slate-50 transition-colors">
-                  {/* 🟢 修改 3: 電腦版內容增加 md:text-center 和 md:align-middle */}
                   <td className="p-4 align-top md:align-middle md:text-center">
                     <div className="font-bold text-lg md:text-xl text-slate-800">{item.product_name}</div>
                     
@@ -300,10 +319,18 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
                   
                   <td className="hidden md:table-cell p-4 text-center text-slate-600 font-mono">${item.price}</td>
                   <td className="hidden md:table-cell p-3">
-                    <QtyInputGroup item={item} idx={idx} type="ship" colorClass="bg-blue-50/50" />
+                    <QtyInputGroup item={item} idx={idx} type="ship" colorClass="bg-blue-50/50" onItemChange={handleItemChange} />
                   </td>
                   <td className="hidden md:table-cell p-3">
-                    <QtyInputGroup item={item} idx={idx} type="return" colorClass="bg-red-50/50" />
+                    {/* 將 isReturnError 傳給回收欄位 */}
+                    <QtyInputGroup 
+                      item={item} 
+                      idx={idx} 
+                      type="return" 
+                      colorClass="bg-red-50/50" 
+                      onItemChange={handleItemChange} 
+                      isError={isReturnError} // 如果有錯，這個欄位會變紅
+                    />
                   </td>
                   <td className="hidden md:table-cell p-4 text-center text-blue-600 font-mono font-bold">{calcs.shipVal > 0 ? calcs.shipVal.toLocaleString() : '-'}</td>
                   <td className="hidden md:table-cell p-4 text-center text-red-500 font-mono font-bold">{calcs.returnVal > 0 ? calcs.returnVal.toLocaleString() : '-'}</td>
@@ -312,12 +339,19 @@ function DailyTable({ editData, onClearEdit, onSaveSuccess }) {
                     <div className="flex flex-col gap-2">
                       <div className="relative">
                         <span className="absolute left-1 top-0 text-[20px] text-blue-600 font-bold z-10 px-1 bg-blue-50 rounded">出貨</span>
-                        <QtyInputGroup item={item} idx={idx} type="ship" colorClass="bg-blue-50 border border-blue-200 pt-5" />
+                        <QtyInputGroup item={item} idx={idx} type="ship" colorClass="bg-blue-50 border border-blue-200 pt-5" onItemChange={handleItemChange} />
                       </div>
                       
                       <div className="relative">
                          <span className="absolute left-1 top-0 text-[20px] text-red-600 font-bold z-10 px-1 bg-red-50 rounded">回收</span>
-                        <QtyInputGroup item={item} idx={idx} type="return" colorClass="bg-red-50 border border-red-200 pt-5" />
+                        <QtyInputGroup 
+                          item={item} 
+                          idx={idx} 
+                          type="return" 
+                          colorClass="bg-red-50 border border-red-200 pt-5" 
+                          onItemChange={handleItemChange}
+                          isError={isReturnError}
+                        />
                       </div>
                     </div>
                   </td>
